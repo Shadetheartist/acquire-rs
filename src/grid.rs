@@ -10,6 +10,7 @@ pub struct Grid {
     pub width: u8,
     pub height: u8,
     pub data: HashMap<Point, Slot>,
+    pub chain_sizes: HashMap<Chain, u16>,
 }
 
 impl Display for Grid {
@@ -42,12 +43,14 @@ impl Default for Grid {
             width: 12,
             height: 9,
             data: Default::default(),
+            chain_sizes: Default::default(),
         }
     }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum PlaceTileResult {
+    Proceed,
     ChainSelect {
         placed_tile_pt: Point
     },
@@ -69,7 +72,7 @@ impl Grid {
         }
     }
 
-    pub fn place(&mut self, tile: Tile) -> Option<PlaceTileResult> {
+    pub fn place(&mut self, tile: Tile) -> PlaceTileResult {
         if self.is_pt_out_of_bounds(tile.0) {
             panic!("setting invalid pt {:?}", tile.0);
         }
@@ -78,27 +81,50 @@ impl Grid {
         let neighbouring_chains = self.chains_in_slots(&neighbours);
 
         if neighbouring_chains.len() == 0 {
-            self.data.insert(tile.0, Slot::NoChain);
+            self.set_slot(tile.0, Slot::NoChain);
 
             let num_neighbouring_nochains = self.num_nochains_chains_in_slots(&neighbours);
             if num_neighbouring_nochains > 0 {
-                self.data.insert(tile.0, Slot::NoChain);
-                return Some(PlaceTileResult::ChainSelect {
+                return PlaceTileResult::ChainSelect {
                     placed_tile_pt: tile.0,
-                });
+                };
             }
         }
 
         if neighbouring_chains.len() == 1 {
             let chain = neighbouring_chains[0];
-            self.data.insert(tile.0, Slot::Chain(chain));
+            self.set_slot(tile.0, Slot::Chain(chain));
         }
 
         if neighbouring_chains.len() >= 2 {
             // merger
         }
 
-        return None;
+        return PlaceTileResult::Proceed;
+    }
+
+    fn set_slot(&mut self, pt: Point, slot: Slot) {
+        // if there was a chain in this slot,
+        // update the count to reflect that it has been overwritten
+        let existing_in_slot = self.get(pt);
+        match existing_in_slot {
+            Slot::Chain(chain) => {
+                self.chain_sizes.entry(chain).and_modify(|n| *n -= 1);
+            },
+            _ => {}
+        }
+
+        // update the slot
+        self.data.insert(pt, slot);
+
+        // if the slot was a chain,
+        // update the count to reflect that it has been added
+        match slot {
+            Slot::Chain(chain) => {
+                self.chain_sizes.entry(chain).and_modify(|n| *n += 1).or_insert(1);
+            }
+            _ => {}
+        }
     }
 
     /// Collects a vec of existing hotel chains in the slice of slots
@@ -160,11 +186,11 @@ impl Grid {
                     continue;
                 }
                 Slot::NoChain => {
-                    self.data.insert(pt, Slot::Chain(chain));
+                    self.set_slot(pt, Slot::Chain(chain));
                 }
                 Slot::Chain(existing_chain) => {
                     if existing_chain != chain {
-                        self.data.insert(pt, Slot::Chain(chain));
+                        self.set_slot(pt, Slot::Chain(chain));
                     }
                 }
             }
@@ -220,14 +246,17 @@ mod test {
         assert_eq!(Slot::NoChain, grid.get(Point { x: 0, y: 0 }));
         assert_eq!(Slot::Empty, grid.get(Point { x: 1, y: 0 }));
         assert_eq!(Slot::Empty, grid.get(Point { x: -1, y: -1 }));
+
+        assert_eq!(grid.chain_sizes.len(), 0);
+
     }
 
     #[test]
     fn test_form_chain() {
         let mut grid = Grid::default();
 
-        assert_eq!(grid.place("A1".try_into().unwrap()), None);
-        assert_eq!(grid.place("A2".try_into().unwrap()), Some(PlaceTileResult::ChainSelect { placed_tile_pt: Point { x: 1, y: 0 } }));
+        assert_eq!(grid.place("A1".try_into().unwrap()), PlaceTileResult::Proceed);
+        assert_eq!(grid.place("A2".try_into().unwrap()), PlaceTileResult::ChainSelect { placed_tile_pt: Point { x: 1, y: 0 } });
 
         // simulate player selects a chain and the game fills the chain
         let chain = Chain::American;
@@ -235,6 +264,10 @@ mod test {
 
         assert_eq!(grid.get("A1".try_into().unwrap()), Slot::Chain(Chain::American));
         assert_eq!(grid.get("A2".try_into().unwrap()), Slot::Chain(Chain::American));
+
+        assert_eq!(grid.chain_sizes.len(), 1);
+        assert_eq!(grid.chain_sizes[&Chain::American], 1);
+
     }
 
     #[test]
@@ -242,21 +275,21 @@ mod test {
         let mut grid = Grid::default();
 
 
-        assert_eq!(grid.place("A1".try_into().unwrap()), None);
-        assert_eq!(grid.place("B2".try_into().unwrap()), None);
+        assert_eq!(grid.place("A1".try_into().unwrap()), PlaceTileResult::Proceed);
+        assert_eq!(grid.place("B2".try_into().unwrap()), PlaceTileResult::Proceed);
 
-        assert_eq!(grid.place("A3".try_into().unwrap()), None);
+        assert_eq!(grid.place("A3".try_into().unwrap()), PlaceTileResult::Proceed);
 
         // ignore this, not filling
-        assert_eq!(grid.place("A4".try_into().unwrap()), Some(PlaceTileResult::ChainSelect { placed_tile_pt: Point { x: 3, y: 0 } }));
+        assert_eq!(grid.place("A4".try_into().unwrap()), PlaceTileResult::ChainSelect { placed_tile_pt: Point { x: 3, y: 0 } });
 
         // isolated islands
-        assert_eq!(grid.place("D1".try_into().unwrap()), None);
-        assert_eq!(grid.place("F6".try_into().unwrap()), None);
+        assert_eq!(grid.place("D1".try_into().unwrap()), PlaceTileResult::Proceed);
+        assert_eq!(grid.place("F6".try_into().unwrap()), PlaceTileResult::Proceed);
 
 
         // merge the chunks of nochains
-        assert_eq!(grid.place("A2".try_into().unwrap()), Some(PlaceTileResult::ChainSelect { placed_tile_pt: Point { x: 1, y: 0 } }));
+        assert_eq!(grid.place("A2".try_into().unwrap()), PlaceTileResult::ChainSelect { placed_tile_pt: Point { x: 1, y: 0 } });
 
         // simulate player selects a chain and the game fills the chain
         let chain = Chain::American;
@@ -268,7 +301,6 @@ mod test {
         assert_eq!(grid.get("A4".try_into().unwrap()), Slot::Chain(Chain::American));
         assert_eq!(grid.get("B2".try_into().unwrap()), Slot::Chain(Chain::American));
 
-
         // make sure islands are untouched
         assert_eq!(grid.get("D1".try_into().unwrap()), Slot::NoChain);
         assert_eq!(grid.get("F6".try_into().unwrap()), Slot::NoChain);
@@ -277,6 +309,15 @@ mod test {
         assert_eq!(grid.get("A5".try_into().unwrap()), Slot::Empty);
         assert_eq!(grid.get("F7".try_into().unwrap()), Slot::Empty);
 
-        println!("{}", grid);
+        // make sure chain sizes are correct
+        assert_eq!(grid.chain_sizes.len(), 1);
+        assert_eq!(grid.chain_sizes[&Chain::American], 5);
+
+        // simulate overriding a chain
+        grid.set_slot("A1".try_into().unwrap(), Slot::Chain(Chain::Luxor));
+
+        assert_eq!(grid.chain_sizes.len(), 2);
+        assert_eq!(grid.chain_sizes[&Chain::American], 4);
+        assert_eq!(grid.chain_sizes[&Chain::Luxor], 1);
     }
 }

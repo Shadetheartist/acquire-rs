@@ -9,7 +9,7 @@ use std::fmt::{Debug, Formatter};
 use itertools::Itertools;
 use rand::Rng;
 use rand::seq::SliceRandom;
-use crate::grid::Grid;
+use crate::grid::{Grid, PlaceTileResult, Slot};
 
 fn main() {
     println!("Hello, world!");
@@ -20,6 +20,7 @@ struct Acquire {
     phase: Phase,
     players: Vec<Player>,
     tiles: Vec<Tile>,
+    stocks: HashMap<Chain, u16>,
     grid: Grid,
     current_player_id: PlayerId,
     current_merge_player: Option<PlayerId>,
@@ -28,9 +29,10 @@ struct Acquire {
 #[derive(Debug)]
 enum Action {
     PlaceTile(PlayerId, Tile),
-    PurchaseStock([Option<Chain>; 3]),
-    SelectMergingChain(Chain),
+    PurchaseStock(PlayerId, [BuyOption; 3]),
+    SelectMergingChain(PlayerId, Chain),
     StockDecision {
+        player_id: PlayerId,
         num_sell: u8,
         num_trade_in: u8,
         num_keep: u8,
@@ -57,6 +59,7 @@ impl Acquire {
             phase: Phase::AwaitingTilePlacement,
             players,
             tiles,
+            stocks: Default::default(),
             grid,
             current_player_id: PlayerId(0),
             current_merge_player: None,
@@ -71,7 +74,37 @@ impl Acquire {
                     Action::PlaceTile(self.current_player_id, *tile)
                 }).collect()
             }
-            Phase::AwaitingStockPurchase => unimplemented!(),
+            Phase::AwaitingStockPurchase => {
+
+                let player = self.get_player_by_id(self.current_player_id);
+                let buy_options = {
+                    let mut buy_option_chains: Vec<BuyOption> = self.get_existing_chains()
+                        .iter()
+                        .map(|chain| BuyOption::Chain(*chain))
+                        .collect()
+                        ;
+
+                    buy_option_chains.push(BuyOption::None);
+
+                    buy_option_chains
+                };
+
+                let mut actions = vec![];
+
+                for buy_option_1 in &buy_options {
+                    for buy_option_2 in &buy_options {
+                        for buy_option_3 in &buy_options {
+                            actions.push(Action::PurchaseStock(self.current_player_id, [
+                                *buy_option_1,
+                                *buy_option_2,
+                                *buy_option_3
+                            ]));
+                        }
+                    }
+                }
+
+                actions
+            },
             Phase::AwaitingMergeSelection => unimplemented!(),
             Phase::AwaitingMergeStockDecision => unimplemented!(),
         }
@@ -82,10 +115,21 @@ impl Acquire {
 
         match action {
             Action::PlaceTile(_, tile) => {
-                game.grid.place(tile);
+                let result = game.grid.place(tile);
+                match result {
+                    PlaceTileResult::Proceed => {
+                        game.phase = Phase::AwaitingStockPurchase;
+                        // shortcut the purchase of stock when
+                        if game.get_existing_chains().len() == 0 {
+                            game.phase = Phase::AwaitingTilePlacement;
+                            game.current_player_id = self.next_player_id();
+                        }
+                    }
+                    PlaceTileResult::ChainSelect { .. } => {}
+                }
             }
-            Action::PurchaseStock(_) => {}
-            Action::SelectMergingChain(_) => {}
+            Action::PurchaseStock(_, _) => {}
+            Action::SelectMergingChain(_, _) => {}
             Action::StockDecision { .. } => {}
         }
 
@@ -95,7 +139,31 @@ impl Acquire {
     fn get_player_by_id(&self, player_id: PlayerId) -> &Player {
         self.players.iter().find(|player| player.id == player_id).unwrap()
     }
+
+    fn get_existing_chains(&self) -> Vec<Chain> {
+        self.grid.data.iter().filter_map(|(_, slot)|{
+            match slot {
+                Slot::Chain(chain) => Some(*chain),
+                _ => None
+            }
+        }).unique().collect()
+    }
+
+    fn get_purchasable_chains(&self) -> Vec<Chain> {
+        self.grid.data.iter().filter_map(|(_, slot)|{
+            match slot {
+                Slot::Chain(chain) => Some(*chain),
+                _ => None
+            }
+        }).unique().collect()
+    }
+
+    fn next_player_id(&self) -> PlayerId {
+        PlayerId((self.current_player_id.0 + 1) % self.players.len() as u8)
+    }
 }
+
+
 
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -112,6 +180,11 @@ struct Player {
     tiles: Vec<Tile>,
 }
 
+#[derive(Copy, Clone, Debug)]
+enum BuyOption {
+    None,
+    Chain(Chain)
+}
 
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -124,6 +197,16 @@ enum Chain {
     Continental,
     Imperial,
 }
+
+const CHAIN_ARRAY: [Chain; 7] = [
+    Chain::Tower,
+    Chain::Luxor,
+    Chain::American,
+    Chain::Worldwide,
+    Chain::Festival,
+    Chain::Continental,
+    Chain::Imperial,
+];
 
 impl Chain {
     pub fn initial(&self) -> char {
@@ -140,7 +223,7 @@ impl Chain {
 }
 
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Phase {
     AwaitingTilePlacement,
     AwaitingStockPurchase,
@@ -157,6 +240,12 @@ mod test {
     fn test_simple() {
         let game = Acquire::new(thread_rng(), 4);
 
-        println!("{:?}", game.actions());
+        let mut actions = game.actions();
+        println!("{:?}: {:?}", game.phase, game.actions());
+
+        let game = game.apply_action(actions.remove(0));
+        println!("{:?}: {:?}", game.phase, game.actions());
+
+
     }
 }
