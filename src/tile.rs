@@ -118,3 +118,11 @@ mod test {
         assert_eq!("Z99", tile.to_string().as_str());
     }
 }
+
+
+#[macro_export]
+macro_rules! tile {
+    ($tile:literal) => {
+        $tile.try_into().expect("a valid tile string")
+    };
+}
