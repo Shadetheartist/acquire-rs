@@ -9,7 +9,7 @@ mod player;
 use tile::Tile;
 use std::fmt::{Debug, Display, Formatter, Write};
 use ahash::HashMap;
-use itertools::Itertools;
+use itertools::{chain, Itertools};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use player::Player;
@@ -29,6 +29,8 @@ struct Acquire {
     grid: Grid,
     current_player_id: PlayerId,
     turn: u16,
+    step: u16,
+    terminated: bool,
 }
 
 struct Options {
@@ -83,15 +85,33 @@ impl Acquire {
             grid,
             current_player_id: PlayerId(0),
             turn: 1,
+            step: 0,
+            terminated: false,
         }
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        if self.terminated {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn may_terminate(&self) -> bool {
+        self.grid.all_chains_are_safe() || self.grid.game_ending_chain_exists()
     }
 
     pub fn actions(&self) -> Vec<Action> {
         match &self.phase {
             Phase::AwaitingTilePlacement => {
                 let player = self.get_player_by_id(self.current_player_id);
-                player.tiles.iter().map(|tile| {
-                    Action::PlaceTile(self.current_player_id, *tile)
+                player.tiles.iter().filter_map(|tile| {
+                    if self.grid.is_illegal_tile(*tile).0 == false {
+                        Some(Action::PlaceTile(self.current_player_id, *tile))
+                    } else {
+                        None
+                    }
                 }).collect()
             }
 
@@ -135,11 +155,22 @@ impl Acquire {
 
                 actions
             }
+            Phase::AwaitingGameTerminationDecision => {
+                if !self.may_terminate() {
+                    panic!("shouldn't be able to terminate");
+                }
+
+                vec![Action::Terminate(self.current_player_id, true), Action::Terminate(self.current_player_id, false)]
+            }
         }
     }
 
     pub fn apply_action(&self, action: Action) -> Acquire {
         let mut game = self.clone();
+
+
+        #[cfg(test)]
+        println!("S{}: {}", game.step, action);
 
         match action {
             Action::PlaceTile(player_id, tile) => {
@@ -169,7 +200,14 @@ impl Acquire {
                     }
                     // the tile is going to merge two or more equal sized chains
                     // we require user input to break the tie
-                    PlaceTileResult::DecideTieBreak { tied_chains, mergers } => {
+                    PlaceTileResult::DecideTieBreak { tied_chains, mut mergers } => {
+                        for merger in &mut mergers {
+                            let num = self.num_players_with_stock_in_chain(merger.defunct_chain);
+                            merger.num_remaining_players_to_merge = Some(num);
+                        }
+
+                        mergers = mergers.into_iter().filter(|merger| merger.num_remaining_players_to_merge.unwrap() > 0).collect();
+
                         game.phase = Phase::Merge {
                             merging_player_id: self.current_player_id,
                             phase: MergePhase::AwaitingTiebreakSelection {
@@ -179,12 +217,32 @@ impl Acquire {
                         };
                     }
                     // the tile placed merged two chains together without the need for a tiebreak
-                    PlaceTileResult::Merge { mergers } => {
-                        game.phase = Phase::Merge {
-                            merging_player_id: self.current_player_id,
-                            phase: MergePhase::AwaitingMergeDecision,
-                            mergers_remaining: mergers,
-                        };
+                    PlaceTileResult::Merge { mut mergers } => {
+                        for merger in &mut mergers {
+                            let num = self.num_players_with_stock_in_chain(merger.defunct_chain);
+                            merger.num_remaining_players_to_merge = Some(num);
+                        }
+
+                        mergers = mergers.into_iter().filter(|merger| merger.num_remaining_players_to_merge != Some(0)).collect();
+
+                        // apparently nobody benefits from any of the mergers
+                        if mergers.len() == 0 {
+                            game.phase = Phase::AwaitingStockPurchase;
+                        } else {
+                            let first_defunct_chain = mergers[0].defunct_chain;
+
+                            if let Some(next_merging_player_id) = self.next_merging_player_id(first_defunct_chain) {
+                                game.phase = Phase::Merge {
+                                    merging_player_id: self.current_player_id,
+                                    phase: MergePhase::AwaitingMergeDecision,
+                                    mergers_remaining: mergers,
+                                };
+                            } else {
+                                // somehow no one has any stake in the hotel.
+                                // only possible with house rules allowing sale of stock
+                                game.phase = Phase::AwaitingStockPurchase;
+                            }
+                        }
                     }
                     // the tile was placed illegally
                     PlaceTileResult::Illegal { .. } => {
@@ -219,30 +277,146 @@ impl Acquire {
                 }
 
                 game.player_take_tile(player_id);
+                game.player_trade_in_illegal_tiles(player_id);
 
-                // todo: illegal tile replacement
-
-                game.phase = Phase::AwaitingTilePlacement;
-                game.go_next_turn();
+                if game.may_terminate() {
+                    game.phase = Phase::AwaitingGameTerminationDecision;
+                } else {
+                    game.phase = Phase::AwaitingTilePlacement;
+                    game.go_next_turn();
+                }
             }
 
             Action::SelectChainForTiebreak(player_id, chain) => {
                 match &mut game.phase {
-                    Phase::Merge { phase, .. } => {
-                        *phase = MergePhase::AwaitingMergeDecision
+                    Phase::Merge { phase: merge_phase, mergers_remaining, .. } => {
+                        if mergers_remaining.len() == 0 {
+                            game.phase = Phase::AwaitingStockPurchase
+                        } else {
+                            *merge_phase = MergePhase::AwaitingMergeDecision
+                        }
                     }
                     _ => panic!("phase should be 'Merge' already")
                 }
             }
 
-            Action::DecideMerge { .. } => {}
+            Action::DecideMerge { decision, merging_player_id: action_merging_player_id } => {
+                let next_merging_player_id = match &game.phase {
+                    Phase::Merge { mergers_remaining, merging_player_id, .. } => {
+                        assert_eq!(action_merging_player_id, *merging_player_id);
+
+                        let merging_chains = mergers_remaining[0];
+                        let defunct_chain_size = game.grid.chain_size(merging_chains.defunct_chain);
+
+                        let mut player = game.get_player_by_id_mut(*merging_player_id);
+                        player.stocks.withdraw(merging_chains.defunct_chain, decision.sell + decision.trade_in).expect("enough stock to sell & trade-in");
+                        player.money += money::chain_value(merging_chains.defunct_chain, defunct_chain_size) * decision.sell as u32;
+                        player.stocks.deposit(merging_chains.merging_chain, decision.trade_in / 2);
+
+                        game.stocks.withdraw(merging_chains.merging_chain, decision.trade_in / 2).expect("enough stock to trade-in for");
+                        game.stocks.deposit(merging_chains.defunct_chain, decision.sell + decision.trade_in);
+
+                        game.next_merging_player_id(merging_chains.defunct_chain)
+                    }
+                    _ => panic!("should not be able to decide to merge when the game phase is not a merger")
+                };
+
+                // need to do this in a second step due to borrowing rules
+                if let Phase::Merge { merging_player_id, mergers_remaining, .. } = &mut game.phase {
+                    if let Some(next_merge_player_id) = next_merging_player_id {
+                        *merging_player_id = next_merge_player_id;
+
+                        let current_merger = &mut mergers_remaining[0];
+                        let num_remaining_players_to_merge = (*current_merger).num_remaining_players_to_merge.as_mut().unwrap();
+                        *num_remaining_players_to_merge -= 1;
+
+                        // finished the merge
+                        if *num_remaining_players_to_merge == 0 {
+                            // strike off this merge, if there's another then we continue,
+                            // everything should work the same for merge 2+
+                            let merger = mergers_remaining.remove(0);
+
+                            *merging_player_id = self.current_player_id;
+
+                            // if there are no more mergers left to do,
+                            // we can move on to the stock purchase phase
+                            if mergers_remaining.len() == 0 {
+                                game.phase = Phase::AwaitingStockPurchase;
+                                game.grid.fill_chain(game.grid.previously_placed_tile_pt.expect("a previously placed tile"), merger.merging_chain);
+                            }
+                        }
+                    } else {
+                        let merger = mergers_remaining.remove(0);
+
+                        *merging_player_id = self.current_player_id;
+
+                        // if there are no more mergers left to do,
+                        // we can move on to the stock purchase phase
+                        if mergers_remaining.len() == 0 {
+                            game.phase = Phase::AwaitingStockPurchase;
+                            game.grid.fill_chain(game.grid.previously_placed_tile_pt.expect("a previously placed tile"), merger.merging_chain);
+                        }
+                    }
+                }
+            }
+            Action::Terminate(_, terminate) => {
+                game.terminated = terminate;
+
+                if game.terminated == false {
+                    game.phase = Phase::AwaitingTilePlacement;
+                    game.go_next_turn();
+                }
+            }
         }
+
+        if game.terminated {
+            return game;
+        }
+
+        for player_id in 0..game.players.len() {
+            if game.actions().len() == 0 {
+                game.current_player_id = game.next_player_id();
+                game.phase = Phase::AwaitingTilePlacement;
+            } else {
+                break;
+            }
+        }
+
+        if game.actions().len() == 0 {
+            // nothing left to do
+            game.terminated = true;
+        }
+
+        game.step += 1;
 
         game
     }
 
     fn player_take_tile(&mut self, player_id: PlayerId) {
         if self.tiles.len() > 0 {
+            let tile = self.tiles.remove(self.tiles.len() - 1);
+            let mut player = self.get_player_by_id_mut(player_id);
+            player.tiles.push(tile);
+        }
+    }
+
+    fn player_trade_in_illegal_tiles(&mut self, player_id: PlayerId) {
+        let grid = self.grid.clone();
+        let num_remaining_tiles = self.tiles.len();
+
+        let tiles_to_draw = {
+            let mut player = self.get_player_by_id_mut(player_id);
+            player.tiles.retain(|tile| {
+                let (illegal, allow_trade_in) = grid.is_illegal_tile(*tile);
+                !illegal && !allow_trade_in
+            });
+
+            let required_tiles: usize = 6 - player.tiles.len();
+            required_tiles.min(num_remaining_tiles)
+        };
+
+        // have to do some weird shit in here to deal with interior mutability
+        for _ in 0..tiles_to_draw {
             let tile = self.tiles.remove(self.tiles.len() - 1);
             let mut player = self.get_player_by_id_mut(player_id);
             player.tiles.push(tile);
@@ -266,6 +440,38 @@ impl Acquire {
         PlayerId((self.current_player_id.0 + 1) % self.players.len() as u8)
     }
 
+    fn num_players_with_stock_in_chain(&self, chain: Chain) -> u8 {
+        self.players.iter().filter(|player| player.stocks.has_any(chain)).count() as u8
+    }
+
+    fn next_merging_player_id(&self, chain: Chain) -> Option<PlayerId> {
+        match self.phase {
+            Phase::AwaitingTilePlacement => {
+                // the last action was to enter a merge phase, so the first merging player is the
+                // first player with stock in the defunct chain, starting from the current player
+
+                self.player_ids_in_order(self.current_player_id).into_iter().find(|player_id| {
+                    self.get_player_by_id(*player_id).stocks.has_any(chain)
+                })
+            }
+            Phase::Merge { merging_player_id, .. } => {
+                self.player_ids_in_order(merging_player_id).into_iter().find(|player_id| {
+                    *player_id != merging_player_id &&
+                        *player_id != self.current_player_id &&
+                        self.get_player_by_id(*player_id).stocks.has_any(chain)
+                })
+            }
+            _ => panic!("invalid phase to call this fn in this phase")
+        }
+    }
+
+    fn player_ids_in_order(&self, starting_player_id: PlayerId) -> Vec<PlayerId> {
+        (0..self.players.len() as u8).into_iter().map(|n| {
+            PlayerId((starting_player_id.0 + n) % self.players.len() as u8)
+        }).collect()
+    }
+
+
     fn purchasable_combinations(&self, purchasing_player_id: PlayerId) -> Vec<[BuyOption; 3]> {
         let player = self.get_player_by_id(purchasing_player_id);
         let remaining_money = player.money;
@@ -275,6 +481,7 @@ impl Acquire {
         let buy_options = {
             let mut buy_option_chains: Vec<BuyOption> = self.grid.existing_chains()
                 .iter()
+                .sorted()
                 .map(|chain| BuyOption::Chain(*chain))
                 .collect();
 
@@ -305,6 +512,7 @@ impl Acquire {
                     }
 
                     money -= cost;
+                    stock.withdraw(*chain, 1).expect("a stock");
                 }
             }
 
@@ -349,6 +557,7 @@ impl Acquire {
 
             for trade_in_num in 0..=trade_ins_possible {
                 combinations.push(MergeDecision {
+                    merging_chains,
                     sell: sell_amount,
                     trade_in: trade_in_num * 2,
                 });
@@ -359,8 +568,7 @@ impl Acquire {
     }
 }
 
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Action {
     PlaceTile(PlayerId, Tile),
     PurchaseStock(PlayerId, [BuyOption; 3]),
@@ -370,10 +578,85 @@ enum Action {
         merging_player_id: PlayerId,
         decision: MergeDecision,
     },
+    Terminate(PlayerId, bool)
+}
+
+impl Display for Action {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::PlaceTile(player_id, tile) => {
+                f.write_fmt(format_args!("Player {} places tile {}", player_id.0, tile))
+            }
+
+            Action::PurchaseStock(player_id, buys) => {
+                if buys.iter().all(|buy| matches!(buy, BuyOption::None)) {
+                    return f.write_fmt(format_args!("Player {} does not buy any stocks.", player_id.0));
+                }
+
+                f.write_fmt(format_args!("Player {} buys ", player_id.0));
+
+                let counts = buys.iter().counts();
+                for (idx, (chain, count)) in counts.iter().enumerate() {
+                    if let BuyOption::Chain(chain) = chain {
+                        f.write_fmt(format_args!("{} {:?}", count, chain));
+                        if idx < counts.len() - 1 {
+                            f.write_fmt(format_args!(", "));
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+
+            Action::SelectChainToCreate(player_id, chain) => {
+                f.write_fmt(format_args!("Player {} chooses to create {:?}", player_id.0, chain))
+            }
+
+            Action::SelectChainForTiebreak(player_id, chain) => {
+                f.write_fmt(format_args!("Player {} chooses {:?} as the merge winner.", player_id.0, chain))
+            }
+
+            Action::DecideMerge { merging_player_id, decision } => {
+                return if decision.sell == 0 && decision.trade_in == 0 {
+                    f.write_fmt(format_args!("Player {} decides to keep their stock in {:?}.", merging_player_id.0, decision.merging_chains.defunct_chain))
+                } else if decision.sell != 0 && decision.trade_in == 0 {
+                    f.write_fmt(format_args!("Player {} sells {} {:?}.", merging_player_id.0, decision.sell, decision.merging_chains.defunct_chain))
+                } else if decision.sell == 0 && decision.trade_in != 0 {
+                    f.write_fmt(format_args!(
+                        "Player {} trades in {} {:?} for {} {:?}.",
+                        merging_player_id.0,
+                        decision.trade_in,
+                        decision.merging_chains.defunct_chain,
+                        decision.trade_in / 2,
+                        decision.merging_chains.merging_chain
+                    ))
+                } else {
+                    f.write_fmt(format_args!(
+                        "Player {} sells {} {:?} and trades in {} {:?} for {} {:?}.",
+                        merging_player_id.0,
+                        decision.sell,
+                        decision.merging_chains.defunct_chain,
+                        decision.trade_in,
+                        decision.merging_chains.defunct_chain,
+                        decision.trade_in / 2,
+                        decision.merging_chains.merging_chain
+                    ))
+                };
+            }
+            Action::Terminate(player_id, terminate) => {
+                if *terminate {
+                    f.write_fmt(format_args!("Player {} chooses to terminate the game.", player_id.0))
+                } else {
+                    f.write_fmt(format_args!("Player {} chooses to prolong the game.", player_id.0))
+                }
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct MergeDecision {
+    merging_chains: MergingChains,
     sell: u8,
     trade_in: u8,
     // 'keep' is the fallback
@@ -384,6 +667,7 @@ enum Phase {
     AwaitingTilePlacement,
     AwaitingChainCreationSelection,
     AwaitingStockPurchase,
+    AwaitingGameTerminationDecision,
     Merge {
         merging_player_id: PlayerId,
         phase: MergePhase,
@@ -403,6 +687,7 @@ enum MergePhase {
 struct MergingChains {
     merging_chain: Chain,
     defunct_chain: Chain,
+    num_remaining_players_to_merge: Option<u8>,
 }
 
 
@@ -451,13 +736,13 @@ impl Debug for PlayerId {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 enum BuyOption {
     None,
     Chain(Chain),
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 enum Chain {
     Tower,
     Luxor,
@@ -467,6 +752,7 @@ enum Chain {
     Continental,
     Imperial,
 }
+
 
 const CHAIN_ARRAY: [Chain; 7] = [
     Chain::Tower,
@@ -496,7 +782,8 @@ impl Chain {
 #[cfg(test)]
 mod test {
     use rand::SeedableRng;
-    use crate::{Acquire, Chain, Options, PlayerId, tile};
+    use rand::seq::SliceRandom;
+    use crate::{Acquire, Chain, Options, Phase, PlayerId, tile};
     use crate::grid::Slot;
 
     #[test]
@@ -504,19 +791,10 @@ mod test {
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
         let game = Acquire::new(rng, &Options::default());
 
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
     }
 
     #[test]
@@ -524,93 +802,58 @@ mod test {
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
         let game = Acquire::new(rng, &Options::default());
 
-        // p1 place I11
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-
         assert_eq!(game.grid.get(tile!("I11")), Slot::NoChain);
 
-        // p2 place H11
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-
         assert_eq!(game.grid.get(tile!("H11")), Slot::NoChain);
 
-        // p2 Create Tower
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
 
-        // p2 purchase 3 Tower
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
 
-        // p3 place G12
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(4));
 
-        // p3 purchase 3 Tower
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
 
-        // p3 place E12
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(2));
 
-        // p4 purchase 3 Tower
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
 
-        // p1 place F12
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(1));
 
-        // p1 create worldwide
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(2));
 
-        // p1 purchase 2 tower 1 worldwide
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(1));
 
-        // p2 place E11
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(5));
-        // buy nothing
+
         let game = game.apply_action(game.actions().remove(game.actions().len() - 1));
 
-        // p3 place E5
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-        // buy nothing
+
         let game = game.apply_action(game.actions().remove(game.actions().len() - 1));
 
-        // p4 place I6
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
         let game = game.apply_action(game.actions().remove(0));
-        // buy nothing
+
         let game = game.apply_action(game.actions().remove(game.actions().len() - 1));
 
-        // p1 place H12
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
-        println!("{}", game);
         let game = game.apply_action(game.actions().remove(4));
 
-        //merge!
+        let game = game.apply_action(game.actions().remove(1));
 
-        println!();
-        println!("{}: {:?} | {:?}", game.turn, game.phase, game.actions());
+        let game = game.apply_action(game.actions().remove(0));
+
+        let game = game.apply_action(game.actions().remove(0));
+
+        let game = game.apply_action(game.actions().remove(0));
+
+        let game = game.apply_action(game.actions().remove(0));
+        println!("{:?}: {:?}", game.phase, game.actions());
+
         println!("{}", game);
     }
 
-    #[test]
-    fn test_purchase() {
-        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let mut game = Acquire::new(rng, &Options::default());
-
-        game.grid.place(tile!("A1"));
-        game.grid.place(tile!("A2"));
-        game.grid.fill_chain(tile!("A1"), Chain::American);
-    }
 
     #[test]
     fn test_purchase_combinations() {
@@ -666,5 +909,215 @@ mod test {
 
         game.players[0].money = 700;
         assert_eq!(game.purchasable_combinations(PlayerId(0)).len(), 35);
+    }
+
+    #[test]
+    fn test_player_ids_in_order() {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(rng, &Options::default());
+
+        assert_eq!(game.player_ids_in_order(PlayerId(0)), vec![
+            PlayerId(0),
+            PlayerId(1),
+            PlayerId(2),
+            PlayerId(3),
+        ]);
+
+        assert_eq!(game.player_ids_in_order(PlayerId(1)), vec![
+            PlayerId(1),
+            PlayerId(2),
+            PlayerId(3),
+            PlayerId(0),
+        ]);
+
+        assert_eq!(game.player_ids_in_order(PlayerId(3)), vec![
+            PlayerId(3),
+            PlayerId(0),
+            PlayerId(1),
+            PlayerId(2),
+        ]);
+    }
+
+    #[test]
+    fn test_four_way_merge() {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(rng, &Options::default());
+
+        game.grid.place(tile!("D1"));
+        game.grid.place(tile!("D2"));
+        game.grid.fill_chain(tile!("D2"), Chain::American);
+
+        game.grid.place(tile!("D4"));
+        game.grid.place(tile!("D5"));
+        game.grid.fill_chain(tile!("D5"), Chain::Festival);
+
+        game.grid.place(tile!("B3"));
+        game.grid.place(tile!("C3"));
+        game.grid.fill_chain(tile!("C3"), Chain::Continental);
+
+        game.grid.place(tile!("E3"));
+        game.grid.place(tile!("F3"));
+        game.grid.fill_chain(tile!("F3"), Chain::Tower);
+
+
+        game.players[0].tiles[0] = tile!("D3");
+
+
+        game = game.apply_action(game.actions().remove(0));
+
+        println!("{:?}", game.actions());
+        // should be one action for each way we can merge the chains together
+        assert_eq!(game.actions().len(), 4);
+        game = game.apply_action(game.actions().remove(0));
+
+        game = game.apply_action(game.actions().remove(0));
+
+        game = game.apply_action(game.actions().remove(0));
+
+        game = game.apply_action(game.actions().remove(0));
+
+        game = game.apply_action(game.actions().remove(0));
+
+        game = game.apply_action(game.actions().remove(0));
+    }
+
+    #[test]
+    fn test_four_way_merge_with_stakes() {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(rng, &Options::default());
+
+        game.grid.place(tile!("D1"));
+        game.grid.place(tile!("D2"));
+        game.grid.fill_chain(tile!("D2"), Chain::American);
+
+        game.grid.place(tile!("D4"));
+        game.grid.place(tile!("D5"));
+        game.grid.fill_chain(tile!("D5"), Chain::Festival);
+
+        game.grid.place(tile!("B3"));
+        game.grid.place(tile!("C3"));
+        game.grid.fill_chain(tile!("C3"), Chain::Continental);
+
+        game.grid.place(tile!("E3"));
+        game.grid.place(tile!("F3"));
+        game.grid.fill_chain(tile!("F3"), Chain::Tower);
+
+        game.players[0].stocks.deposit(Chain::American, 3);
+        game.players[0].stocks.deposit(Chain::Festival, 3);
+        game.players[0].stocks.deposit(Chain::Continental, 3);
+        game.players[0].stocks.deposit(Chain::Tower, 3);
+
+        game.players[1].stocks.deposit(Chain::American, 1);
+        game.players[1].stocks.deposit(Chain::Festival, 2);
+        game.players[1].stocks.deposit(Chain::Continental, 3);
+        game.players[1].stocks.deposit(Chain::Tower, 4);
+
+        game.players[2].stocks.deposit(Chain::American, 5);
+        game.players[2].stocks.deposit(Chain::Festival, 3);
+        game.players[2].stocks.deposit(Chain::Continental, 2);
+        game.players[2].stocks.deposit(Chain::Tower, 0);
+
+        game.players[3].stocks.deposit(Chain::American, 8);
+        game.players[3].stocks.deposit(Chain::Festival, 0);
+        game.players[3].stocks.deposit(Chain::Continental, 2);
+        game.players[3].stocks.deposit(Chain::Tower, 1);
+
+
+        game.players[0].tiles[0] = tile!("D3");
+
+        game = game.apply_action(game.actions().remove(0));
+
+        // should be one action for each way we can merge the chains together
+        assert_eq!(game.actions().len(), 4);
+        game = game.apply_action(game.actions().remove(0));
+
+
+        assert_eq!(game.players[0].stocks.amount(Chain::Festival), 3);
+        assert_eq!(game.players[0].stocks.amount(Chain::Tower), 3);
+        assert_eq!(game.players[0].money, 6000);
+
+        // Player 0 sells 1 and trades-in 2 for 1. (Festival)
+        game = game.apply_action(game.actions().remove(3));
+
+        assert_eq!(game.players[0].stocks.amount(Chain::Festival), 0);
+        assert_eq!(game.players[0].stocks.amount(Chain::Tower), 4);
+        assert_eq!(game.players[0].money, 6300);
+
+
+        assert_eq!(game.players[1].stocks.amount(Chain::Festival), 2);
+        assert_eq!(game.players[1].money, 6000);
+
+        // Player 1 sells 2. (Festival)
+        game = game.apply_action(game.actions().remove(3));
+
+
+        assert_eq!(game.players[2].stocks.amount(Chain::Festival), 3);
+        assert_eq!(game.players[2].money, 6000);
+
+        // Player 2 sells 3.
+        game = game.apply_action(game.actions().remove(5));
+
+        assert_eq!(game.players[2].stocks.amount(Chain::Festival), 0);
+        assert_eq!(game.players[2].money, 6900);
+
+        // Player 3 has no stake in fesitval
+
+        println!("{:?} {:?}", game.phase, game.actions());
+        println!("{}", game);
+
+        match game.phase {
+            Phase::Merge { merging_player_id, .. } => {
+                assert_eq!(merging_player_id, PlayerId(0))
+            }
+            _ => panic!("game not in correct state")
+        }
+
+        game = game.apply_action(game.actions().remove(2));
+
+        println!("{}", game);
+    }
+
+    #[test]
+    fn test_growth() {
+        let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(2), &Options::default());
+
+        game.grid.place(tile!("A4"));
+        game.grid.place(tile!("B3"));
+
+        game.grid.place(tile!("A1"));
+        game.grid.place(tile!("A2"));
+        game.grid.fill_chain(tile!("A2"), Chain::Festival);
+
+        game.grid.place(tile!("A3"));
+
+        assert_eq!(game.grid.get(tile!("A3")), Slot::Chain(Chain::Festival));
+        assert_eq!(game.grid.get(tile!("A4")), Slot::Chain(Chain::Festival));
+        assert_eq!(game.grid.get(tile!("B3")), Slot::Chain(Chain::Festival));
+
+    }
+
+        #[test]
+    fn test_random_games() {
+
+        for n in 0..1 {
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(n);
+            let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(n), &Options::default());
+
+            for _ in 0..200 {
+                if game.is_terminated() {
+                    break;
+                }
+
+                let actions = game.actions();
+                let action = actions.choose(&mut rng).expect("an action");
+
+                game = game.apply_action(action.clone());
+
+                println!("{}", game);
+
+            }
+
+            println!("{}", game);
+        }
     }
 }

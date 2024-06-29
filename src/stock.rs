@@ -34,6 +34,10 @@ impl Stocks {
     }
 
     pub fn has_amount(&self, chain: Chain, amount: u8) -> bool {
+        if amount == 0 {
+            return true;
+        }
+
         if self.stocks.contains_key(&chain) == false {
             return false;
         }
@@ -42,10 +46,18 @@ impl Stocks {
     }
 
     pub fn deposit(&mut self, chain: Chain, amount: u8) {
+        if amount == 0 {
+            return;
+        }
+
         self.stocks.entry(chain).and_modify(|n| *n += amount).or_insert(amount);
     }
 
     pub fn withdraw(&mut self, chain: Chain, amount: u8) -> Result<(), StockError> {
+        if amount == 0 {
+            return Ok(());
+        }
+
         if self.has_amount(chain, amount) == false {
             return Err(StockError::InsufficientFunds);
         }

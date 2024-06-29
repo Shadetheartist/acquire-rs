@@ -6,6 +6,7 @@ use crate::tile::{Tile, TileParseError};
 use ahash::{HashMap, HashSet};
 
 const SAFE_CHAIN_SIZE: u16 = 11;
+const GAME_ENDING_CHAIN_SIZE: u16 = 41;
 
 #[derive(Clone)]
 pub struct Grid {
@@ -51,6 +52,13 @@ impl Grid {
         }
     }
 
+    pub fn all_chains_are_safe(&self) -> bool {
+        self.chain_sizes.iter().all(|(_, size)| *size >= SAFE_CHAIN_SIZE)
+    }
+
+    pub fn game_ending_chain_exists(&self) -> bool {
+        self.chain_sizes.iter().any(|(_, size)| *size >= GAME_ENDING_CHAIN_SIZE)
+    }
 
     pub fn is_pt_out_of_bounds(&self, pt: Point) -> bool {
         pt.x < 0 ||
@@ -60,21 +68,26 @@ impl Grid {
     }
 
     pub fn get(&self, pt: Point) -> Slot {
-        if let Some(pt) = self.data.get(&pt) {
-            *pt
+        if let Some(slot) = self.data.get(&pt) {
+            *slot
         } else {
             Slot::Empty
         }
     }
+
 
     pub fn place(&mut self, tile: Tile) -> PlaceTileResult {
         if self.is_pt_out_of_bounds(tile.0) {
             panic!("setting invalid pt {:?}", tile.0);
         }
 
-        let neighbours = self.neighbours(tile.0);
-        let neighbouring_chains = self.chains_in_slots(&neighbours);
-        let num_neighbouring_chains = neighbouring_chains.len();
+        let (neighbours, neighbouring_chains, num_neighbouring_chains, illegal, allow_trade_in) = self._is_illegal_tile(tile);
+
+        if illegal {
+            return PlaceTileResult::Illegal {
+                allow_trade_in
+            };
+        }
 
         match num_neighbouring_chains {
             // two or more neighbouring chains
@@ -115,6 +128,7 @@ impl Grid {
                     .map(|chain| MergingChains {
                         merging_chain: largest_chain,
                         defunct_chain: *chain,
+                        num_remaining_players_to_merge: None, // must be set by the caller
                     })
                     .collect();
 
@@ -138,23 +152,13 @@ impl Grid {
             0 => {
                 let num_neighbouring_nochains = self.num_nochains_chains_in_slots(&neighbours);
 
+                self.set_slot(tile.0, Slot::NoChain);
+                self.previously_placed_tile_pt = Some(tile.0);
+
                 // touching one or more tiles which do not form a chain (free real estate)
                 return if num_neighbouring_nochains > 0 {
-
-                    // illegal to form an 8th chain
-                    // but also this specific form of illegal tile cannot be traded in
-                    if self.available_chains().len() == 0 {
-                        return PlaceTileResult::Illegal { allow_trade_in: false };
-                    }
-
-                    self.set_slot(tile.0, Slot::NoChain);
-                    self.previously_placed_tile_pt = Some(tile.0);
-
                     PlaceTileResult::SelectAvailableChain
                 } else {
-                    self.set_slot(tile.0, Slot::NoChain);
-                    self.previously_placed_tile_pt = Some(tile.0);
-
                     PlaceTileResult::Proceed
                 };
             }
@@ -162,6 +166,12 @@ impl Grid {
             1 => {
                 let chain = neighbouring_chains[0];
                 self.set_slot(tile.0, Slot::Chain(chain));
+
+                let affected_neighbours_pts: Vec<Point> = self.neighbouring_points(tile.0).into_iter().filter(|pt| self.get(*pt) == Slot::NoChain).collect();
+                for affected_neighbour_pt in affected_neighbours_pts {
+                    self.set_slot(affected_neighbour_pt, Slot::Chain(chain));
+                }
+
                 self.previously_placed_tile_pt = Some(tile.0);
                 return PlaceTileResult::Proceed;
             }
@@ -217,7 +227,6 @@ impl Grid {
                     Slot::Limbo |
                     Slot::Chain(_) => 0,
                     Slot::NoChain => 1,
-
                 }
             }
         })
@@ -296,6 +305,40 @@ impl Grid {
             0
         }
     }
+
+    pub fn is_illegal_tile(&self, tile: Tile) -> (bool, bool) {
+        let (_, _, _, illegal, allow_trade_in) = self._is_illegal_tile(tile);
+        (illegal, allow_trade_in)
+    }
+
+    fn _is_illegal_tile(&self, tile: Tile) -> ([Slot; 4], Vec<Chain>, usize, bool, bool) {
+        let neighbours = self.neighbours(tile.0);
+        let neighbouring_chains = self.chains_in_slots(&neighbours);
+        let num_neighbouring_chains = neighbouring_chains.len();
+
+        match num_neighbouring_chains {
+            2.. => {
+                if neighbouring_chains.iter().filter(|chain| self.chain_size(**chain) >= SAFE_CHAIN_SIZE).count() > 1 {
+                    return (neighbours, neighbouring_chains, num_neighbouring_chains, true, true);
+                }
+            }
+
+            0 => {
+                let num_neighbouring_nochains = self.num_nochains_chains_in_slots(&neighbours);
+                if num_neighbouring_nochains > 0 {
+
+                    // illegal to form an 8th chain
+                    // but also this specific form of illegal tile cannot be traded in
+                    if self.available_chains().len() == 0 {
+                        return (neighbours, neighbouring_chains, num_neighbouring_chains, true, false);
+                    }
+                }
+            }
+            _ => {}
+        };
+
+        (neighbours, neighbouring_chains, num_neighbouring_chains, false, false)
+    }
 }
 
 
@@ -316,7 +359,6 @@ impl Display for Grid {
                     Slot::Chain(chain) => {
                         write!(f, "{}", chain.initial());
                     }
-
                 }
                 write!(f, "  ", );
             }
