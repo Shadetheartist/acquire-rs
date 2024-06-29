@@ -30,6 +30,12 @@ fn main() {
 
         println!("{}", game);
     }
+
+    let winners = game.calculate_winners();
+
+    println!("game winner(s): {:?} with ${}", winners, game.get_player_by_id(winners[0]).money);
+    println!("{}", game);
+
 }
 
 #[derive(Clone)]
@@ -104,6 +110,22 @@ impl Acquire {
 
     pub fn is_terminated(&self) -> bool {
         self.terminated
+    }
+
+    pub fn calculate_winners(&mut self) -> Vec<PlayerId> {
+        for chain in &CHAIN_ARRAY {
+            self.provide_bonuses(*chain);
+        }
+
+        let most_money = self.players.iter().map(|player| player.money).max().unwrap();
+
+        self.players.iter().filter_map(|player| {
+            if player.money == most_money {
+                Some(player.id)
+            } else {
+                None
+            }
+        }).collect()
     }
 
     fn may_terminate(&self) -> bool {
@@ -292,7 +314,6 @@ impl Acquire {
                 match &mut game.phase {
                     Phase::Merge { phase: merge_phase, mergers_remaining, .. } => {
                         if let MergePhase::AwaitingTiebreakSelection { tied_chains } = merge_phase {
-
                             for defunct_chain in tied_chains.iter().filter(|chain| **chain != tiebreak_chain) {
                                 // use self here to avoid interior mutability issues
                                 let num = self.num_players_with_stock_in_chain(*defunct_chain);
