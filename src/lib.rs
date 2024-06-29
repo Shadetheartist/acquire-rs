@@ -14,32 +14,9 @@ use player::Player;
 use crate::grid::{Grid, PlaceTileResult};
 use crate::stock::Stocks;
 
-fn main() {
-    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-    let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(2), &Options::default());
-
-    loop {
-        if game.is_terminated() {
-            break;
-        }
-
-        let actions = game.actions();
-        let action = actions.choose(&mut rng).expect("an action");
-
-        game = game.apply_action(action.clone());
-
-        println!("{}", game);
-    }
-
-    let winners = game.calculate_winners();
-
-    println!("game winner(s): {:?} with ${}", winners, game.get_player_by_id(winners[0]).money);
-    println!("{}", game);
-
-}
 
 #[derive(Clone)]
-struct Acquire {
+pub struct Acquire {
     phase: Phase,
     players: Vec<Player>,
     tiles: Vec<Tile>,
@@ -51,7 +28,7 @@ struct Acquire {
     terminated: bool,
 }
 
-struct Options {
+pub struct Options {
     num_players: u8,
     num_tiles: u8,
     grid_width: u8,
@@ -476,7 +453,7 @@ impl Acquire {
         self.turn += 1;
     }
 
-    fn get_player_by_id(&self, player_id: PlayerId) -> &Player {
+    pub fn get_player_by_id(&self, player_id: PlayerId) -> &Player {
         self.players.iter().find(|player| player.id == player_id).unwrap()
     }
 
@@ -617,7 +594,7 @@ impl Acquire {
 }
 
 #[derive(Debug, Clone)]
-enum Action {
+pub enum Action {
     PlaceTile(PlayerId, Tile),
     PurchaseStock(PlayerId, [BuyOption; 3]),
     SelectChainToCreate(PlayerId, Chain),
@@ -777,7 +754,7 @@ impl Display for Acquire {
 
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-struct PlayerId(pub u8);
+pub struct PlayerId(pub u8);
 
 impl Debug for PlayerId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -1159,6 +1136,26 @@ mod test {
 
                 game = game.apply_action(action.clone());
             }
+
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+            let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(2), &Options::default());
+
+            loop {
+                if game.is_terminated() {
+                    break;
+                }
+
+                let actions = game.actions();
+                let action = actions.choose(&mut rng).expect("an action");
+
+                game = game.apply_action(action.clone());
+
+                println!("{}", game);
+            }
+
+            let winners = game.calculate_winners();
+
+            println!("game winner(s): {:?} with ${}", winners, game.get_player_by_id(winners[0]).money);
             println!("{}", game);
         }
     }
