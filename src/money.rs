@@ -44,7 +44,7 @@ impl Acquire {
             })
             .collect();
 
-        if players_with_stock.len() == 0 {
+        if players_with_stock.is_empty() {
             return HashMap::default();
         }
 
@@ -78,10 +78,10 @@ impl Acquire {
             })
             .collect();
 
-        let mut player_payouts = HashMap::default();
+        
 
 
-        player_payouts
+        HashMap::default()
     }
 }
 
@@ -92,7 +92,7 @@ mod test {
 
     #[test]
     fn test_bonus_calc() {
-        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
         let mut game = Acquire::new(rng, &Options::default());
 
         game.grid.place(tile!("A1"));

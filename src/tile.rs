@@ -19,7 +19,7 @@ pub struct Tile(pub Point);
 
 impl Tile {
     pub fn new(x: i8, y: i8) -> Self {
-        Self { 0: Point { x, y } }
+        Self(Point { x, y })
     }
 }
 
@@ -62,7 +62,7 @@ impl Display for Tile {
 pub fn map_letter_to_i8(letter: char) -> Result<i8, String> {
     match letter {
         'A'..='Z' => {
-            Ok((letter as u8 - 'A' as u8) as i8 + 1)
+            Ok((letter as u8 - b'A') as i8 + 1)
         }
         _ => Err(format!("'{letter}' is not a supported letter (must be uppercase A-Z)"))
     }
@@ -75,6 +75,14 @@ pub fn map_i8_to_letter(value: i8) -> Result<char, String> {
         }
         _ => Err(format!("'{value}' is not in the correct range"))
     }
+}
+
+
+#[macro_export]
+macro_rules! tile {
+    ($tile:literal) => {
+        $tile.try_into().expect("a valid tile string")
+    };
 }
 
 
@@ -117,12 +125,4 @@ mod test {
         let tile: Tile = "Z99".try_into().unwrap();
         assert_eq!("Z99", tile.to_string().as_str());
     }
-}
-
-
-#[macro_export]
-macro_rules! tile {
-    ($tile:literal) => {
-        $tile.try_into().expect("a valid tile string")
-    };
 }

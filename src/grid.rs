@@ -1,6 +1,6 @@
 use std::collections::{VecDeque};
 use std::fmt::{Display, Formatter};
-use itertools::{chain, Itertools};
+use itertools::{Itertools};
 use crate::{Chain, CHAIN_ARRAY, MergingChains};
 use crate::tile::{Tile, TileParseError};
 use ahash::{HashMap, HashSet};
@@ -26,7 +26,6 @@ pub enum PlaceTileResult {
     SelectAvailableChain,
     DecideTieBreak {
         tied_chains: Vec<Chain>,
-        mergers: Vec<MergingChains>,
     },
     Merge {
         mergers: Vec<MergingChains>
@@ -41,14 +40,6 @@ impl Grid {
             data: Default::default(),
             chain_sizes: Default::default(),
             previously_placed_tile_pt: None,
-        }
-    }
-
-    pub fn previously_placed_slot(&self) -> Slot {
-        if let Some(pt) = self.previously_placed_tile_pt {
-            self.get(pt)
-        } else {
-            Slot::Empty
         }
     }
 
@@ -112,8 +103,7 @@ impl Grid {
 
                 let largest_chains: Vec<Chain> = neighbouring_chains
                     .iter()
-                    .filter(|chain| self.chain_size(**chain) == largest_chain_size)
-                    .map(|chain| *chain)
+                    .filter(|chain| self.chain_size(**chain) == largest_chain_size).copied()
                     .collect();
 
                 let largest_chain = largest_chains[0];
@@ -139,13 +129,12 @@ impl Grid {
                 if largest_chains.len() > 1 {
                     return PlaceTileResult::DecideTieBreak {
                         tied_chains: largest_chains,
-                        mergers: merger_list,
                     };
                 }
 
-                return PlaceTileResult::Merge {
+                PlaceTileResult::Merge {
                     mergers: merger_list
-                };
+                }
             }
 
             // no neighbouring chains
@@ -156,11 +145,11 @@ impl Grid {
                 self.previously_placed_tile_pt = Some(tile.0);
 
                 // touching one or more tiles which do not form a chain (free real estate)
-                return if num_neighbouring_nochains > 0 {
+                if num_neighbouring_nochains > 0 {
                     PlaceTileResult::SelectAvailableChain
                 } else {
                     PlaceTileResult::Proceed
-                };
+                }
             }
 
             1 => {
@@ -173,7 +162,7 @@ impl Grid {
                 }
 
                 self.previously_placed_tile_pt = Some(tile.0);
-                return PlaceTileResult::Proceed;
+                PlaceTileResult::Proceed
             }
         }
     }
@@ -182,16 +171,13 @@ impl Grid {
         // if there was a chain in this slot,
         // update the count to reflect that it has been overwritten
         let existing_in_slot = self.get(pt);
-        match existing_in_slot {
-            Slot::Chain(chain) => {
-                self.chain_sizes.entry(chain).and_modify(|n| *n -= 1);
+        if let Slot::Chain(chain) = existing_in_slot {
+            self.chain_sizes.entry(chain).and_modify(|n| *n -= 1);
 
-                // remove chain from map if it is size zero
-                if self.chain_sizes[&chain] == 0 {
-                    self.chain_sizes.remove(&chain);
-                }
+            // remove chain from map if it is size zero
+            if self.chain_sizes[&chain] == 0 {
+                self.chain_sizes.remove(&chain);
             }
-            _ => {}
         }
 
         // update the slot
@@ -199,11 +185,8 @@ impl Grid {
 
         // if the slot was a chain,
         // update the count to reflect that it has been added
-        match slot {
-            Slot::Chain(chain) => {
-                self.chain_sizes.entry(chain).and_modify(|n| *n += 1).or_insert(1);
-            }
-            _ => {}
+        if let Slot::Chain(chain) = slot {
+            self.chain_sizes.entry(chain).and_modify(|n| *n += 1).or_insert(1);
         }
     }
 
@@ -279,7 +262,7 @@ impl Grid {
             }
 
             for valid_neighbour_pt in self.neighbouring_points(pt).iter().filter(|pt| {
-                visited.contains(pt) == false && self.get(**pt) != Slot::Empty
+                !visited.contains(pt) && self.get(**pt) != Slot::Empty
             }) {
                 stack.push_back(*valid_neighbour_pt);
             }
@@ -293,8 +276,7 @@ impl Grid {
     pub fn available_chains(&self) -> Vec<Chain> {
         CHAIN_ARRAY
             .iter()
-            .filter(|chain| !self.chain_sizes.contains_key(&chain))
-            .map(|chain| *chain)
+            .filter(|chain| !self.chain_sizes.contains_key(chain)).copied()
             .collect()
     }
 
@@ -329,7 +311,7 @@ impl Grid {
 
                     // illegal to form an 8th chain
                     // but also this specific form of illegal tile cannot be traded in
-                    if self.available_chains().len() == 0 {
+                    if self.available_chains().is_empty() {
                         return (neighbours, neighbouring_chains, num_neighbouring_chains, true, false);
                     }
                 }
@@ -342,6 +324,7 @@ impl Grid {
 }
 
 
+#[allow(unused_must_use)]
 impl Display for Grid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for y in 0..self.height as i8 {
@@ -425,7 +408,7 @@ pub enum Slot {
 mod test {
     use crate::{Chain, tile};
     use crate::grid::{Grid, PlaceTileResult, Point, Slot};
-    use crate::tile::Tile;
+    
 
     #[test]
     fn test_place_tile_empty_grid() {

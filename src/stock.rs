@@ -38,7 +38,7 @@ impl Stocks {
             return true;
         }
 
-        if self.stocks.contains_key(&chain) == false {
+        if !self.stocks.contains_key(&chain) {
             return false;
         }
 
@@ -58,7 +58,7 @@ impl Stocks {
             return Ok(());
         }
 
-        if self.has_amount(chain, amount) == false {
+        if !self.has_amount(chain, amount) {
             return Err(StockError::InsufficientFunds);
         }
 
