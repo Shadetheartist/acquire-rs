@@ -346,9 +346,19 @@ impl Display for Grid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for y in 0..self.height as i8 {
             for x in 0..self.width as i8 {
-                match self.get(Point { x, y }) {
+                let pt = Point { x, y };
+                let (is_illegal, is_replaceable) = self.is_illegal_tile(Tile(pt));
+                match self.get(pt) {
                     Slot::Empty => {
-                        write!(f, "□", );
+                        if is_illegal {
+                            if is_replaceable {
+                                write!(f, "▪", );
+                            } else {
+                                write!(f, "▫", );
+                            }
+                        } else {
+                            write!(f, "□", );
+                        }
                     }
                     Slot::NoChain => {
                         write!(f, "■", );
