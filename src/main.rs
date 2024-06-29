@@ -175,7 +175,7 @@ impl Acquire {
         let mut game = self.clone();
 
 
-        #[cfg(test)]
+        #[cfg(debug_assertions)]
         println!("S{}: {}", game.step, action);
 
         match action {
@@ -231,8 +231,10 @@ impl Acquire {
                             let first_defunct_chain = mergers[0].defunct_chain;
 
                             if let Some(next_merging_player_id) = self.next_merging_player_id(first_defunct_chain) {
+                                game.provide_bonuses(first_defunct_chain);
+
                                 game.phase = Phase::Merge {
-                                    merging_player_id: self.current_player_id,
+                                    merging_player_id: next_merging_player_id,
                                     phase: MergePhase::AwaitingMergeDecision,
                                     mergers_remaining: mergers,
                                 };
@@ -302,6 +304,9 @@ impl Acquire {
                             }
 
                             *merge_phase = MergePhase::AwaitingMergeDecision;
+
+                            let first_defunct_chain = mergers_remaining[0].defunct_chain;
+                            game.provide_bonuses(first_defunct_chain);
                         } else {
                             panic!("supposed to be awaiting a tiebreak")
                         }
@@ -365,6 +370,9 @@ impl Acquire {
                         if mergers_remaining.is_empty() {
                             game.phase = Phase::AwaitingStockPurchase;
                             game.grid.fill_chain(game.grid.previously_placed_tile_pt.expect("a previously placed tile"), merger.merging_chain);
+                        } else {
+                            let first_defunct_chain = mergers_remaining[0].defunct_chain;
+                            game.provide_bonuses(first_defunct_chain);
                         }
                     }
                 }
@@ -400,6 +408,15 @@ impl Acquire {
         game.step += 1;
 
         game
+    }
+
+    fn provide_bonuses(&mut self, chain: Chain) {
+        let bonuses = self.chain_bonus(chain);
+        for (player_id, bonus) in bonuses {
+            #[cfg(debug_assertions)]
+            println!("Player {} received a bonus of ${bonus}", player_id.0);
+            self.get_player_by_id_mut(player_id).money += bonus;
+        }
     }
 
     fn player_take_tile(&mut self, player_id: PlayerId) {
@@ -738,7 +755,7 @@ impl Display for Acquire {
 }
 
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 struct PlayerId(pub u8);
 
 impl Debug for PlayerId {
@@ -800,12 +817,12 @@ mod test {
     #[test]
     fn test_game() {
         let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let game = Acquire::new(rng, &Options::default());
+        let mut game = Acquire::new(rng, &Options::default());
 
-        let game = game.apply_action(game.actions().remove(0));
-        let game = game.apply_action(game.actions().remove(0));
-        let game = game.apply_action(game.actions().remove(0));
-        let game = game.apply_action(game.actions().remove(0));
+        game = game.apply_action(game.actions().remove(0));
+        game = game.apply_action(game.actions().remove(0));
+        game = game.apply_action(game.actions().remove(0));
+        game = game.apply_action(game.actions().remove(0));
     }
 
     #[test]

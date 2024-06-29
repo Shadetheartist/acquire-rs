@@ -1,6 +1,6 @@
 use ahash::HashMap;
 use lazy_static::lazy_static;
-use crate::{Acquire, Chain};
+use crate::{Acquire, Chain, PlayerId};
 use crate::player::Player;
 
 lazy_static! {
@@ -36,7 +36,7 @@ fn chain_size_value(chain_size: u16) -> u32 {
 }
 
 impl Acquire {
-    fn chain_bonus(&self, chain: Chain) -> HashMap<Player, u32> {
+    pub fn chain_bonus(&self, chain: Chain) -> HashMap<PlayerId, u32> {
         let players_with_stock: Vec<&Player> = self.players
             .iter()
             .filter(|player| {
@@ -60,16 +60,17 @@ impl Acquire {
 
         let second_most_stock_held = players_with_stock
             .iter()
-            .filter(|p| p.stocks.amount(chain) == most_stock_held)
+            .filter(|p| p.stocks.amount(chain) != most_stock_held)
             .map(|p| p.stocks.amount(chain))
             .max()
-            .unwrap();
+            .unwrap_or(0);
 
         let players_with_most_stock: Vec<&&Player> = players_with_stock
             .iter()
             .filter(|p| p.stocks.amount(chain) == most_stock_held)
             .collect();
 
+        // not including zero
         let players_with_second_most_stock: Vec<&&Player> = players_with_stock
             .iter()
             .filter(|p| {
@@ -78,17 +79,42 @@ impl Acquire {
             })
             .collect();
 
-        
 
+        let chain_size = self.grid.chain_size(chain);
+        let chain_value = chain_value(chain, chain_size);
+        let total_major_bonus = chain_value * 10;
+        let total_minor_bonus = chain_value * 5;
 
-        HashMap::default()
+        // share first place rewards combined, second place gets shit all
+        if players_with_most_stock.len() > 1 || (players_with_most_stock.len() == 1 && players_with_second_most_stock.len() == 0) {
+            let split_bonus = round_up_to_nearest_hundred(total_major_bonus / players_with_most_stock.len() as u32);
+            return players_with_most_stock.iter().map(|player| (player.id, split_bonus)).collect();
+        } else if players_with_most_stock.len() == 1 && players_with_second_most_stock.len() >= 1 {
+            let mut map = HashMap::default();
+
+            map.insert(players_with_most_stock[0].id, total_major_bonus);
+
+            let split_minor_bonus = round_up_to_nearest_hundred(total_minor_bonus / players_with_second_most_stock.len() as u32);
+            for player in players_with_second_most_stock {
+                map.insert(player.id, split_minor_bonus);
+            }
+
+            return map;
+        } else {
+            panic!("weird bonus situation")
+        }
     }
+}
+
+fn round_up_to_nearest_hundred(num: u32) -> u32 {
+    ((num + 99) / 100) * 100
 }
 
 #[cfg(test)]
 mod test {
     use rand::SeedableRng;
     use crate::{Acquire, Chain, Options, tile};
+    use crate::money::round_up_to_nearest_hundred;
 
     #[test]
     fn test_bonus_calc() {
@@ -99,5 +125,14 @@ mod test {
         game.grid.place(tile!("A2"));
         game.grid.fill_chain(tile!("A1"), Chain::American);
 
+    }
+
+    #[test]
+    fn test_nearest_hundred(){
+        assert_eq!(round_up_to_nearest_hundred(0), 0);
+        assert_eq!(round_up_to_nearest_hundred(50), 100);
+        assert_eq!(round_up_to_nearest_hundred(175), 200);
+        assert_eq!(round_up_to_nearest_hundred(125), 200);
+        assert_eq!(round_up_to_nearest_hundred(700), 700);
     }
 }
