@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::prelude::SliceRandom;
 use rand::SeedableRng;
-use acquire_rs::{Acquire, Options};
+use acquire::{Acquire, Options};
 
 fn run_game() {
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);

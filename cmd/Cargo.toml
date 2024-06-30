@@ -1,0 +1,9 @@
+[package]
+name = "cmd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+acquire = { path = "../acquire" }
+rand_chacha = "0.3.1"
+rand = "0.8.5"

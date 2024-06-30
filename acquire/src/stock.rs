@@ -1,6 +1,6 @@
 use ahash::HashMap;
 use thiserror::Error;
-use crate::Chain;
+use crate::chain::Chain;
 
 #[derive(Clone, Default)]
 pub struct Stocks {
@@ -9,8 +9,8 @@ pub struct Stocks {
 
 #[derive(Error, Debug)]
 pub enum StockError {
-    #[error("player does not have the funds to buy this")]
-    InsufficientFunds
+    #[error("there is not enough stock to withdraw")]
+    InsufficientStock
 }
 
 impl From<HashMap<Chain, u8>> for Stocks {
@@ -59,7 +59,7 @@ impl Stocks {
         }
 
         if !self.has_amount(chain, amount) {
-            return Err(StockError::InsufficientFunds);
+            return Err(StockError::InsufficientStock);
         }
 
         self.stocks.entry(chain).and_modify(|n| *n -= amount);

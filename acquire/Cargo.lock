@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "acquire"
+name = "acquire-rs"
 version = "0.1.0"
 dependencies = [
  "ahash",
@@ -124,15 +124,6 @@ name = "clap_lex"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b82cf0babdbd58558212896d1a4272303a57bdb245c2bf1147185fb45640e70"
-
-[[package]]
-name = "cmd"
-version = "0.1.0"
-dependencies = [
- "acquire",
- "rand",
- "rand_chacha",
-]
 
 [[package]]
 name = "criterion"

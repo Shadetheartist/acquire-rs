@@ -1,9 +1,10 @@
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
-use itertools::{Itertools};
-use crate::{Chain, CHAIN_ARRAY, MergingChains};
+use itertools::Itertools;
+use crate::MergingChains;
 use crate::tile::{Tile, TileParseError};
 use ahash::{HashMap, HashSet};
+use crate::chain::{Chain, ChainTable};
 
 const SAFE_CHAIN_SIZE: u16 = 11;
 const GAME_ENDING_CHAIN_SIZE: u16 = 41;
@@ -13,7 +14,7 @@ pub struct Grid {
     pub width: u8,
     pub height: u8,
     pub data: HashMap<Point, Slot>,
-    chain_sizes: HashMap<Chain, u16>,
+    chain_sizes: ChainTable<u16>,
     pub previously_placed_tile_pt: Option<Point>,
 }
 
@@ -44,11 +45,11 @@ impl Grid {
     }
 
     pub fn all_chains_are_safe(&self) -> bool {
-        self.chain_sizes.iter().all(|(_, size)| *size >= SAFE_CHAIN_SIZE)
+        self.chain_sizes.0.iter().all(|size| *size >= SAFE_CHAIN_SIZE)
     }
 
     pub fn game_ending_chain_exists(&self) -> bool {
-        self.chain_sizes.iter().any(|(_, size)| *size >= GAME_ENDING_CHAIN_SIZE)
+        self.chain_sizes.0.iter().any(|size| *size >= GAME_ENDING_CHAIN_SIZE)
     }
 
     pub fn is_pt_out_of_bounds(&self, pt: Point) -> bool {
@@ -111,7 +112,7 @@ impl Grid {
                 // sort non-largest chains into a list in descending chain size order - ties in defunct chains don't matter as far as I know
                 // nor do I comprehend any advantage to sorting them in this way, it's just in the rules.
                 let mut other_chains: Vec<Chain> = neighbouring_chains.into_iter().filter(|chain| *chain != largest_chain).collect();
-                other_chains.sort_by(|a, b| self.chain_sizes[b].cmp(&self.chain_sizes[a]));
+                other_chains.sort_by(|a, b| self.chain_sizes.get(b).cmp(&self.chain_sizes.get(a)));
 
                 let merger_list = other_chains
                     .iter()
@@ -172,12 +173,8 @@ impl Grid {
         // update the count to reflect that it has been overwritten
         let existing_in_slot = self.get(pt);
         if let Slot::Chain(chain) = existing_in_slot {
-            self.chain_sizes.entry(chain).and_modify(|n| *n -= 1);
-
-            // remove chain from map if it is size zero
-            if self.chain_sizes[&chain] == 0 {
-                self.chain_sizes.remove(&chain);
-            }
+            let new_value = self.chain_sizes.get(&chain) - 1;
+            self.chain_sizes.set(&chain, new_value);
         }
 
         // update the slot
@@ -186,7 +183,8 @@ impl Grid {
         // if the slot was a chain,
         // update the count to reflect that it has been added
         if let Slot::Chain(chain) = slot {
-            self.chain_sizes.entry(chain).and_modify(|n| *n += 1).or_insert(1);
+            let new_value = self.chain_sizes.get(&chain) + 1;
+            self.chain_sizes.set(&chain, new_value);
         }
     }
 
@@ -270,22 +268,25 @@ impl Grid {
     }
 
     pub fn existing_chains(&self) -> Vec<Chain> {
-        self.chain_sizes.clone().into_keys().collect()
+        self.chain_sizes.0
+            .iter()
+            .enumerate()
+            .filter(|(chain_idx, size)| **size > 0)
+            .map(|(chain_idx, _)| Chain::from_index(chain_idx))
+            .collect()
     }
 
     pub fn available_chains(&self) -> Vec<Chain> {
-        CHAIN_ARRAY
+        self.chain_sizes.0
             .iter()
-            .filter(|chain| !self.chain_sizes.contains_key(chain)).copied()
+            .enumerate()
+            .filter(|(chain_idx, size)| **size == 0)
+            .map(|(chain_idx, _)| Chain::from_index(chain_idx))
             .collect()
     }
 
     pub fn chain_size(&self, chain: Chain) -> u16 {
-        if self.chain_sizes.contains_key(&chain) {
-            self.chain_sizes[&chain]
-        } else {
-            0
-        }
+        self.chain_sizes.get(&chain)
     }
 
     pub fn is_illegal_tile(&self, tile: Tile) -> (bool, bool) {
@@ -406,7 +407,8 @@ pub enum Slot {
 
 #[cfg(test)]
 mod test {
-    use crate::{Chain, tile};
+    use crate::tile;
+    use crate::chain::Chain;
     use crate::grid::{Grid, PlaceTileResult, Point, Slot};
     
 
@@ -418,8 +420,6 @@ mod test {
         assert_eq!(Slot::NoChain, grid.get(Point { x: 0, y: 0 }));
         assert_eq!(Slot::Empty, grid.get(Point { x: 1, y: 0 }));
         assert_eq!(Slot::Empty, grid.get(Point { x: -1, y: -1 }));
-
-        assert_eq!(grid.chain_sizes.len(), 0);
     }
 
     #[test]
@@ -436,7 +436,6 @@ mod test {
         assert_eq!(grid.get(tile!("A1")), Slot::Chain(Chain::American));
         assert_eq!(grid.get(tile!("A2")), Slot::Chain(Chain::American));
 
-        assert_eq!(grid.chain_sizes.len(), 1);
         assert_eq!(grid.chain_sizes[&Chain::American], 2);
     }
 
@@ -480,13 +479,11 @@ mod test {
         assert_eq!(grid.get(tile!("F7")), Slot::Empty);
 
         // make sure chain sizes are correct
-        assert_eq!(grid.chain_sizes.len(), 1);
         assert_eq!(grid.chain_sizes[&Chain::American], 5);
 
         // simulate overriding a chain
         grid.set_slot(tile!("A1"), Slot::Chain(Chain::Luxor));
 
-        assert_eq!(grid.chain_sizes.len(), 2);
         assert_eq!(grid.chain_sizes[&Chain::American], 4);
         assert_eq!(grid.chain_sizes[&Chain::Luxor], 1);
 
@@ -494,7 +491,6 @@ mod test {
         grid.fill_chain(tile!("A1"), chain);
 
         // should only have one chain, luxor should be removed from map
-        assert_eq!(grid.chain_sizes.len(), 1);
         assert_eq!(grid.chain_sizes[&Chain::American], 5);
     }
 }

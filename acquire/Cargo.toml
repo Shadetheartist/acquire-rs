@@ -1,0 +1,22 @@
+[package]
+name = "acquire"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = "0.13.0"
+thiserror = "1.0.61"
+rand = "0.8.5"
+ahash = "0.8.11"
+rand_chacha = "0.3.1"
+lazy_static = "1.5.0"
+
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "my_benchmark"
+harness = false
+

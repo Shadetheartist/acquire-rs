@@ -1,6 +1,7 @@
 use ahash::HashMap;
 use lazy_static::lazy_static;
-use crate::{Acquire, Chain, PlayerId};
+use crate::{Acquire, PlayerId};
+use crate::chain::Chain;
 use crate::player::Player;
 
 lazy_static! {
@@ -113,7 +114,8 @@ fn round_up_to_nearest_hundred(num: u32) -> u32 {
 #[cfg(test)]
 mod test {
     use rand::SeedableRng;
-    use crate::{Acquire, Chain, Options, tile};
+    use crate::{Acquire, Options, tile};
+    use crate::chain::Chain;
     use crate::money::round_up_to_nearest_hundred;
 
     #[test]

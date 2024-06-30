@@ -3,13 +3,16 @@ mod grid;
 mod money;
 mod stock;
 mod player;
+mod chain;
 
 use tile::Tile;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Index;
 use ahash::HashMap;
-use itertools::{Itertools};
-use rand::{Rng, SeedableRng};
+use itertools::Itertools;
+use rand::Rng;
 use rand::seq::SliceRandom;
+use chain::{Chain, CHAIN_ARRAY};
 use player::Player;
 use crate::grid::{Grid, PlaceTileResult};
 use crate::stock::Stocks;
@@ -61,6 +64,7 @@ impl Acquire {
                 tiles.push(Tile::new(x, y));
             }
         }
+
         tiles.shuffle(&mut rng);
 
         let players = (0..options.num_players).map(|id| Player {
@@ -85,96 +89,90 @@ impl Acquire {
         }
     }
 
-    pub fn is_terminated(&self) -> bool {
-        self.terminated
+    pub fn actions(&self) -> Vec<Action> {
+        match &self.phase {
+            Phase::AwaitingTilePlacement => {
+                self.tile_placement_actions()
+            }
+
+            Phase::AwaitingChainCreationSelection => {
+                self.chain_selection_actions()
+            }
+            Phase::Merge { merging_player_id, phase: merge_phase, mergers_remaining } => {
+                self.merge_actions(merging_player_id, merge_phase, mergers_remaining)
+            }
+
+            Phase::AwaitingStockPurchase => {
+                self.stock_purchase_actions()
+            }
+            Phase::AwaitingGameTerminationDecision => {
+                self.game_termination_actions()
+            }
+        }
     }
 
-    pub fn calculate_winners(&mut self) -> Vec<PlayerId> {
-        for chain in &CHAIN_ARRAY {
-            self.provide_bonuses(*chain);
-        }
-
-        let most_money = self.players.iter().map(|player| player.money).max().unwrap();
-
-        self.players.iter().filter_map(|player| {
-            if player.money == most_money {
-                Some(player.id)
+    fn tile_placement_actions(&self) -> Vec<Action> {
+        let player = self.get_player_by_id(self.current_player_id);
+        player.tiles.iter().filter_map(|tile| {
+            if !self.grid.is_illegal_tile(*tile).0 {
+                Some(Action::PlaceTile(self.current_player_id, *tile))
             } else {
                 None
             }
         }).collect()
     }
 
-    fn may_terminate(&self) -> bool {
-        self.grid.all_chains_are_safe() || self.grid.game_ending_chain_exists()
+    fn chain_selection_actions(&self) -> Vec<Action> {
+        self.grid.available_chains().into_iter().map(|chain| {
+            Action::SelectChainToCreate(self.current_player_id, chain)
+        }).collect()
     }
 
-    pub fn actions(&self) -> Vec<Action> {
-        match &self.phase {
-            Phase::AwaitingTilePlacement => {
-                let player = self.get_player_by_id(self.current_player_id);
-                player.tiles.iter().filter_map(|tile| {
-                    if !self.grid.is_illegal_tile(*tile).0 {
-                        Some(Action::PlaceTile(self.current_player_id, *tile))
-                    } else {
-                        None
-                    }
+    fn merge_actions(&self, merging_player_id: &PlayerId, merge_phase: &MergePhase, mergers_remaining: &Vec<MergingChains>) -> Vec<Action> {
+        match merge_phase {
+            MergePhase::AwaitingTiebreakSelection { tied_chains } => {
+                tied_chains.iter().map(|chain| {
+                    Action::SelectChainForTiebreak(*merging_player_id, *chain)
                 }).collect()
             }
+            MergePhase::AwaitingMergeDecision => {
+                let current_merger = mergers_remaining[0];
 
-            Phase::AwaitingChainCreationSelection => {
-                self.grid.available_chains().into_iter().map(|chain| {
-                    Action::SelectChainToCreate(self.current_player_id, chain)
-                }).collect()
-            }
-            Phase::Merge { merging_player_id, phase: merge_phase, mergers_remaining } => {
-                match merge_phase {
-                    MergePhase::AwaitingTiebreakSelection { tied_chains } => {
-                        tied_chains.iter().map(|chain| {
-                            Action::SelectChainForTiebreak(*merging_player_id, *chain)
-                        }).collect()
-                    }
-                    MergePhase::AwaitingMergeDecision => {
-                        let current_merger = mergers_remaining[0];
-
-                        self.merge_combinations(*merging_player_id, current_merger)
-                            .iter()
-                            .map(|decision| {
-                                Action::DecideMerge {
-                                    merging_player_id: *merging_player_id,
-                                    decision: *decision,
-                                }
-                            })
-                            .collect()
-                    }
-                }
-            }
-
-            Phase::AwaitingStockPurchase => {
-                let actions = self.purchasable_combinations(self.current_player_id)
+                self.merge_combinations(*merging_player_id, current_merger)
                     .iter()
-                    .map(|buy| {
-                        Action::PurchaseStock(self.current_player_id, *buy)
+                    .map(|decision| {
+                        Action::DecideMerge {
+                            merging_player_id: *merging_player_id,
+                            decision: *decision,
+                        }
                     })
-                    .collect();
-
-                actions
-            }
-            Phase::AwaitingGameTerminationDecision => {
-                if !self.may_terminate() {
-                    panic!("shouldn't be able to terminate");
-                }
-
-                vec![Action::Terminate(self.current_player_id, true), Action::Terminate(self.current_player_id, false)]
+                    .collect()
             }
         }
+    }
+
+    fn game_termination_actions(&self) -> Vec<Action> {
+        if !self.may_terminate() {
+            panic!("shouldn't be able to terminate");
+        }
+
+        vec![Action::Terminate(self.current_player_id, true), Action::Terminate(self.current_player_id, false)]
+    }
+
+    fn stock_purchase_actions(&self) -> Vec<Action> {
+        self.purchasable_combinations(self.current_player_id)
+            .iter()
+            .map(|buy| {
+                Action::PurchaseStock(self.current_player_id, *buy)
+            })
+            .collect()
     }
 
     pub fn apply_action(&self, action: Action) -> Acquire {
         let mut game = self.clone();
 
 
-        #[cfg(debug_assertions)]
+        #[cfg(test)]
         println!("S{}: {}", game.step, action);
 
         match action {
@@ -192,11 +190,10 @@ impl Acquire {
                     // nothing special happens, the game proceeds to the next player
                     PlaceTileResult::Proceed => {
                         game.phase = Phase::AwaitingStockPurchase;
-                        // shortcut the purchase of stock when
+                        // shortcut the purchase of stock when there are no chains to buy
                         if game.grid.existing_chains().is_empty() {
                             game.player_take_tile(player_id);
-                            game.phase = Phase::AwaitingTilePlacement;
-                            game.go_next_turn();
+                            game.move_to_next_player_who_can_play_a_tile();
                         }
                     }
                     // the new tile created a chain, we need user input to select the hotel chain
@@ -282,8 +279,7 @@ impl Acquire {
                 if game.may_terminate() {
                     game.phase = Phase::AwaitingGameTerminationDecision;
                 } else {
-                    game.phase = Phase::AwaitingTilePlacement;
-                    game.go_next_turn();
+                    game.move_to_next_player_who_can_play_a_tile();
                 }
             }
 
@@ -379,8 +375,7 @@ impl Acquire {
                 game.terminated = terminate;
 
                 if !game.terminated {
-                    game.phase = Phase::AwaitingTilePlacement;
-                    game.go_next_turn();
+                    game.move_to_next_player_who_can_play_a_tile();
                 }
             }
         }
@@ -389,29 +384,67 @@ impl Acquire {
             return game;
         }
 
-        for _ in 0..game.players.len() {
-            if game.actions().is_empty() {
-                game.current_player_id = game.next_player_id();
-                game.phase = Phase::AwaitingTilePlacement;
-            } else {
-                break;
-            }
-        }
-
-        if game.actions().is_empty() {
-            // nothing left to do
-            game.terminated = true;
-        }
-
         game.step += 1;
 
         game
     }
 
+    pub fn is_terminated(&self) -> bool {
+        self.terminated
+    }
+
+    pub fn calculate_winners(&mut self) -> Vec<PlayerId> {
+        for chain in &CHAIN_ARRAY {
+            self.provide_bonuses(*chain);
+        }
+
+        let most_money = self.players.iter().map(|player| player.money).max().unwrap();
+
+        self.players.iter().filter_map(|player| {
+            if player.money == most_money {
+                Some(player.id)
+            } else {
+                None
+            }
+        }).collect()
+    }
+
+    fn move_to_next_player_who_can_play_a_tile(&mut self){
+        let mut count = 0;
+        loop {
+            self.phase = Phase::AwaitingTilePlacement;
+            self.go_next_turn();
+
+            if self.player_has_any_valid_tiles(self.current_player_id) {
+                break;
+            }
+
+            self.player_trade_in_illegal_tiles(self.current_player_id);
+
+            count += 1;
+
+            if count == self.players.len() * 2 {
+                self.terminated = true;
+                break;
+            }
+        }
+    }
+
+    fn may_terminate(&self) -> bool {
+        self.grid.all_chains_are_safe() || self.grid.game_ending_chain_exists()
+    }
+
+    fn player_has_any_valid_tiles(&mut self, player_id: PlayerId) -> bool {
+        let player = self.get_player_by_id(player_id);
+        player.tiles.iter().any(|tile| {
+            !self.grid.is_illegal_tile(*tile).0
+        })
+    }
+
     fn provide_bonuses(&mut self, chain: Chain) {
         let bonuses = self.chain_bonus(chain);
         for (player_id, bonus) in bonuses {
-            #[cfg(debug_assertions)]
+            #[cfg(test)]
             println!("Player {} received a bonus of ${bonus}", player_id.0);
             self.get_player_by_id_mut(player_id).money += bonus;
         }
@@ -439,6 +472,11 @@ impl Acquire {
             let required_tiles: usize = 6 - player.tiles.len();
             required_tiles.min(num_remaining_tiles)
         };
+
+        #[cfg(test)]
+        if tiles_to_draw > 0 {
+            println!("Player {} replaces {} of their illegal tiles.", player_id.0, tiles_to_draw);
+        }
 
         // have to do some weird shit in here to deal with interior mutability
         for _ in 0..tiles_to_draw {
@@ -719,7 +757,7 @@ struct MergingChains {
 #[allow(unused_must_use)]
 impl Display for Acquire {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("  Acquire: Turn {}", self.turn));
+        f.write_fmt(format_args!("  Acquire: Turn {} | Tiles Left {}", self.turn, self.tiles.len()));
         writeln!(f);
 
         write!(f, "      ");
@@ -727,7 +765,8 @@ impl Display for Acquire {
             f.write_fmt(format_args!("{}", chain.initial()));
             write!(f, "  ");
         }
-        write!(f, "Money");
+        write!(f, "Money    ");
+        write!(f, "Tiles");
         writeln!(f);
 
         for player in &self.players {
@@ -741,7 +780,8 @@ impl Display for Acquire {
             for chain in &CHAIN_ARRAY {
                 f.write_fmt(format_args!("{: <3}", player.stocks.amount(*chain)));
             }
-            f.write_fmt(format_args!("${}", player.money));
+            f.write_fmt(format_args!("${: <8}", player.money));
+            f.write_fmt(format_args!("{}", player.tiles.len()));
 
             writeln!(f);
         }
@@ -763,53 +803,17 @@ impl Debug for PlayerId {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-enum BuyOption {
+pub enum BuyOption {
     None,
     Chain(Chain),
 }
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-enum Chain {
-    Tower,
-    Luxor,
-    American,
-    Worldwide,
-    Festival,
-    Continental,
-    Imperial,
-}
-
-
-const CHAIN_ARRAY: [Chain; 7] = [
-    Chain::Tower,
-    Chain::Luxor,
-    Chain::American,
-    Chain::Worldwide,
-    Chain::Festival,
-    Chain::Continental,
-    Chain::Imperial,
-];
-
-impl Chain {
-    pub fn initial(&self) -> char {
-        match self {
-            Chain::Tower => 'T',
-            Chain::Luxor => 'L',
-            Chain::American => 'A',
-            Chain::Worldwide => 'W',
-            Chain::Festival => 'F',
-            Chain::Continental => 'C',
-            Chain::Imperial => 'I',
-        }
-    }
-}
-
 
 #[cfg(test)]
 mod test {
     use rand::SeedableRng;
     use rand::seq::SliceRandom;
-    use crate::{Acquire, Chain, Options, Phase, PlayerId, tile};
+    use crate::{Acquire, Options, Phase, PlayerId, tile};
+    use crate::chain::Chain;
     use crate::grid::Slot;
 
     #[test]
@@ -989,8 +993,9 @@ mod test {
 
         game = game.apply_action(game.actions().remove(0));
 
+        let a = game.actions();
         // should be one action for each way we can merge the chains together
-        assert_eq!(game.actions().len(), 4);
+        assert_eq!(a.len(), 4);
         game = game.apply_action(game.actions().remove(1));
 
         game = game.apply_action(game.actions().remove(0));
@@ -1059,14 +1064,14 @@ mod test {
 
         assert_eq!(game.players[0].stocks.amount(Chain::Festival), 3);
         assert_eq!(game.players[0].stocks.amount(Chain::Tower), 3);
-        assert_eq!(game.players[0].money, 6000);
+        assert_eq!(game.players[0].money, 7500);
 
         // Player 0 sells 1 and trades-in 2 for 1. (Festival)
         game = game.apply_action(game.actions().remove(3));
 
         assert_eq!(game.players[0].stocks.amount(Chain::Festival), 0);
         assert_eq!(game.players[0].stocks.amount(Chain::Tower), 4);
-        assert_eq!(game.players[0].money, 6300);
+        assert_eq!(game.players[0].money, 7800);
 
 
         assert_eq!(game.players[1].stocks.amount(Chain::Festival), 2);
@@ -1077,13 +1082,13 @@ mod test {
 
 
         assert_eq!(game.players[2].stocks.amount(Chain::Festival), 3);
-        assert_eq!(game.players[2].money, 6000);
+        assert_eq!(game.players[2].money, 7500);
 
         // Player 2 sells 3.
         game = game.apply_action(game.actions().remove(5));
 
         assert_eq!(game.players[2].stocks.amount(Chain::Festival), 0);
-        assert_eq!(game.players[2].money, 6900);
+        assert_eq!(game.players[2].money, 8400);
 
         // Player 3 has no stake in fesitval
 
