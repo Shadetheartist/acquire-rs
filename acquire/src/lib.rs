@@ -554,6 +554,11 @@ impl Acquire {
             buy_option_chains
         };
 
+        let mut chain_values: ChainTable<u32> = ChainTable::default();
+        for chain in &CHAIN_ARRAY {
+            chain_values.set(chain, money::chain_value(*chain, self.grid.chain_size(*chain)))
+        }
+
         // this anonymous function is reused to
         // simulate purchasing each stock to determine if it's
         // possible to purchase the combination of stocks at all
@@ -568,7 +573,7 @@ impl Acquire {
                         return false;
                     }
 
-                    let cost = money::chain_value(*chain, self.grid.chain_size(*chain));
+                    let cost = chain_values.get(&chain);
 
                     // check if there's enough money left to buy
                     if money < cost {
