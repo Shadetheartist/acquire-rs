@@ -8,7 +8,6 @@ mod chain;
 use tile::Tile;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Index;
-use ahash::HashMap;
 use itertools::Itertools;
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -112,6 +111,7 @@ impl Acquire {
         }
     }
 
+    #[inline(never)]
     fn tile_placement_actions(&self) -> Vec<Action> {
         let player = self.get_player_by_id(self.current_player_id);
         player.tiles.iter().filter_map(|tile| {
@@ -123,12 +123,14 @@ impl Acquire {
         }).collect()
     }
 
+    #[inline(never)]
     fn chain_selection_actions(&self) -> Vec<Action> {
         self.grid.available_chains().into_iter().map(|chain| {
             Action::SelectChainToCreate(self.current_player_id, chain)
         }).collect()
     }
 
+    #[inline(never)]
     fn merge_actions(&self, merging_player_id: &PlayerId, merge_phase: &MergePhase, mergers_remaining: &Vec<MergingChains>) -> Vec<Action> {
         match merge_phase {
             MergePhase::AwaitingTiebreakSelection { tied_chains } => {
@@ -152,6 +154,7 @@ impl Acquire {
         }
     }
 
+    #[inline(never)]
     fn game_termination_actions(&self) -> Vec<Action> {
         if !self.may_terminate() {
             panic!("shouldn't be able to terminate");
@@ -160,6 +163,7 @@ impl Acquire {
         vec![Action::Terminate(self.current_player_id, true), Action::Terminate(self.current_player_id, false)]
     }
 
+    #[inline(never)]
     fn stock_purchase_actions(&self) -> Vec<Action> {
         self.purchasable_combinations(self.current_player_id)
             .iter()
@@ -493,11 +497,11 @@ impl Acquire {
     }
 
     pub fn get_player_by_id(&self, player_id: PlayerId) -> &Player {
-        self.players.iter().find(|player| player.id == player_id).unwrap()
+        &self.players[player_id.0 as usize]
     }
 
     fn get_player_by_id_mut(&mut self, player_id: PlayerId) -> &mut Player {
-        self.players.iter_mut().find(|player| player.id == player_id).unwrap()
+        &mut self.players[player_id.0 as usize]
     }
 
     fn next_player_id(&self) -> PlayerId {

@@ -3,7 +3,7 @@ use acquire::{Acquire, Options};
 use rand::seq::SliceRandom;
 
 fn main() {
-    for n in 0..4 {
+    for n in 0..10_000 {
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(n);
         let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(n), &Options::default());
 
@@ -23,7 +23,7 @@ fn main() {
 
         game.calculate_winners();
 
-        println!("{}", game);
+        //println!("{}", game);
 
     }
 
