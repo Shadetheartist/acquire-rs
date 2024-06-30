@@ -56,6 +56,13 @@ impl<T: Copy> Index<&Chain> for ChainTable<T> {
 }
 
 impl<T: Copy> ChainTable<T> {
+
+    pub fn new(initial_value: T) -> Self {
+        Self {
+            0: [initial_value; NUM_CHAINS as usize]
+        }
+    }
+
     pub fn set(&mut self, chain: &Chain, value: T) {
         self.0[chain.as_index()] = value;
     }

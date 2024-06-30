@@ -1,10 +1,9 @@
-use ahash::HashMap;
 use thiserror::Error;
-use crate::chain::Chain;
+use crate::chain::{Chain, ChainTable};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Stocks {
-    stocks: HashMap<Chain, u8>,
+    stocks: ChainTable<u8>,
 }
 
 #[derive(Error, Debug)]
@@ -13,35 +12,23 @@ pub enum StockError {
     InsufficientStock
 }
 
-impl From<HashMap<Chain, u8>> for Stocks {
-    fn from(value: HashMap<Chain, u8>) -> Self {
-        Self { stocks: value }
-    }
-}
-
 impl Stocks {
 
-    pub fn amount(&self, chain: Chain) -> u8 {
-        if self.stocks.contains_key(&chain) {
-            self.stocks[&chain]
-        } else {
-            0
+    pub fn new(initial_value: u8) -> Self {
+        Self {
+            stocks: ChainTable::new(initial_value)
         }
+    }
+
+    pub fn amount(&self, chain: Chain) -> u8 {
+        self.stocks.get(&chain)
     }
 
     pub fn has_any(&self, chain: Chain) -> bool {
-        self.stocks.contains_key(&chain)
+        self.has_amount(chain, 1)
     }
 
     pub fn has_amount(&self, chain: Chain, amount: u8) -> bool {
-        if amount == 0 {
-            return true;
-        }
-
-        if !self.stocks.contains_key(&chain) {
-            return false;
-        }
-
         self.stocks[&chain] >= amount
     }
 
@@ -50,23 +37,18 @@ impl Stocks {
             return;
         }
 
-        self.stocks.entry(chain).and_modify(|n| *n += amount).or_insert(amount);
+        self.stocks.set(&chain, self.stocks.get(&chain) + amount);
     }
 
-    pub fn withdraw(&mut self, chain: Chain, amount: u8) -> Result<(), StockError> {
-        if amount == 0 {
-            return Ok(());
-        }
+    pub fn withdraw(&mut self, chain: Chain, withdraw_amount: u8) -> Result<(), StockError> {
 
-        if !self.has_amount(chain, amount) {
+        let amount_available = self.stocks.get(&chain);
+
+        if withdraw_amount > amount_available {
             return Err(StockError::InsufficientStock);
         }
 
-        self.stocks.entry(chain).and_modify(|n| *n -= amount);
-
-        if self.stocks[&chain] == 0 {
-            self.stocks.remove(&chain);
-        }
+        self.stocks.set(&chain, amount_available - withdraw_amount);
 
         Ok(())
     }

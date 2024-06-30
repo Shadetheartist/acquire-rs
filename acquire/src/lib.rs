@@ -14,6 +14,7 @@ use rand::Rng;
 use rand::seq::SliceRandom;
 use chain::{Chain, CHAIN_ARRAY};
 use player::Player;
+use crate::chain::ChainTable;
 use crate::grid::{Grid, PlaceTileResult};
 use crate::stock::Stocks;
 
@@ -70,17 +71,17 @@ impl Acquire {
         let players = (0..options.num_players).map(|id| Player {
             id: PlayerId(id),
             tiles: (0..options.num_tiles).map(|_| tiles.remove(0)).collect(),
-            stocks: Default::default(),
+            stocks: Stocks::new(0),
             money: options.starting_money,
         }).collect();
 
-        let stocks: HashMap<Chain, u8> = CHAIN_ARRAY.iter().map(|chain| (*chain, options.num_stock)).collect();
+        let mut stocks = Stocks::new(options.num_stock);
 
         Self {
             phase: Phase::AwaitingTilePlacement,
             players,
             tiles,
-            stocks: stocks.into(),
+            stocks,
             grid,
             current_player_id: PlayerId(0),
             turn: 1,
