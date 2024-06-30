@@ -413,7 +413,7 @@ impl Acquire {
         }).collect()
     }
 
-    fn move_to_next_player_who_can_play_a_tile(&mut self){
+    fn move_to_next_player_who_can_play_a_tile(&mut self) {
         let mut count = 0;
         loop {
             self.phase = Phase::AwaitingTilePlacement;
@@ -468,10 +468,14 @@ impl Acquire {
 
         let tiles_to_draw = {
             let player = self.get_player_by_id_mut(player_id);
-            player.tiles.retain(|tile| {
-                let (illegal, allow_trade_in) = grid.is_illegal_tile(*tile);
-                !illegal && !allow_trade_in
-            });
+            player.tiles = player.tiles
+                .iter()
+                .filter(|tile| {
+                    let (illegal, allow_trade_in) = grid.is_illegal_tile(**tile);
+                    !illegal && !allow_trade_in
+                })
+                .map(|tile| *tile)
+                .collect();
 
             let required_tiles: usize = 6 - player.tiles.len();
             required_tiles.min(num_remaining_tiles)
