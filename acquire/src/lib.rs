@@ -769,8 +769,15 @@ impl Display for Acquire {
         write!(f, "      ");
         for chain in &CHAIN_ARRAY {
             f.write_fmt(format_args!("{}", chain.initial()));
-            write!(f, "  ");
+            write!(f, "   ");
         }
+        writeln!(f);
+
+        write!(f, "      ");
+        for chain in &CHAIN_ARRAY {
+            f.write_fmt(format_args!("{: <4}", self.grid.chain_size(*chain)));
+        }
+
         write!(f, "Money    ");
         write!(f, "Tiles");
         writeln!(f);
@@ -784,7 +791,7 @@ impl Display for Acquire {
             f.write_fmt(format_args!(" P{}: ", player.id.0));
 
             for chain in &CHAIN_ARRAY {
-                f.write_fmt(format_args!("{: <3}", player.stocks.amount(*chain)));
+                f.write_fmt(format_args!("{: <4}", player.stocks.amount(*chain)));
             }
             f.write_fmt(format_args!("${: <8}", player.money));
             f.write_fmt(format_args!("{}", player.tiles.len()));

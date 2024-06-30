@@ -84,14 +84,6 @@ impl Grid {
         match num_neighbouring_chains {
             // two or more neighbouring chains
             2.. => {
-
-                // if the tile is place between two safe chains, it is an illegal action, and the tile can be traded in
-                if neighbouring_chains.iter().filter(|chain| self.chain_size(**chain) >= SAFE_CHAIN_SIZE).count() > 1 {
-                    return PlaceTileResult::Illegal {
-                        allow_trade_in: true
-                    };
-                }
-
                 // merger
 
                 let largest_chain_size = neighbouring_chains
