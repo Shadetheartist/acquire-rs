@@ -87,10 +87,10 @@ impl Acquire {
         let total_minor_bonus = chain_value * 5;
 
         // share first place rewards combined, second place gets shit all
-        if players_with_most_stock.len() > 1 || (players_with_most_stock.len() == 1 && players_with_second_most_stock.len() == 0) {
+        if players_with_most_stock.len() > 1 || (players_with_most_stock.len() == 1 && players_with_second_most_stock.is_empty()) {
             let split_bonus = round_up_to_nearest_hundred(total_major_bonus / players_with_most_stock.len() as u32);
             return players_with_most_stock.iter().map(|player| (player.id, split_bonus)).collect();
-        } else if players_with_most_stock.len() == 1 && players_with_second_most_stock.len() >= 1 {
+        } else if players_with_most_stock.len() == 1 && !players_with_second_most_stock.is_empty() {
             let mut map = HashMap::default();
 
             map.insert(players_with_most_stock[0].id, total_major_bonus);

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rand::prelude::SliceRandom;
 use rand::SeedableRng;
 use acquire::{Acquire, Options};
@@ -20,7 +20,7 @@ fn run_game() {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("fib 20", |b| b.iter(|| run_game()));
+    c.bench_function("fib 20", |b| b.iter(run_game));
 }
 
 criterion_group!(benches, criterion_benchmark);

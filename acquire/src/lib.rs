@@ -7,7 +7,6 @@ mod chain;
 
 use tile::Tile;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Index;
 use itertools::Itertools;
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -74,7 +73,7 @@ impl Acquire {
             money: options.starting_money,
         }).collect();
 
-        let mut stocks = Stocks::new(options.num_stock);
+        let stocks = Stocks::new(options.num_stock);
 
         Self {
             phase: Phase::AwaitingTilePlacement,
@@ -131,7 +130,7 @@ impl Acquire {
     }
 
     #[inline(never)]
-    fn merge_actions(&self, merging_player_id: &PlayerId, merge_phase: &MergePhase, mergers_remaining: &Vec<MergingChains>) -> Vec<Action> {
+    fn merge_actions(&self, merging_player_id: &PlayerId, merge_phase: &MergePhase, mergers_remaining: &[MergingChains]) -> Vec<Action> {
         match merge_phase {
             MergePhase::AwaitingTiebreakSelection { tied_chains } => {
                 tied_chains.iter().map(|chain| {
@@ -577,7 +576,7 @@ impl Acquire {
                         return false;
                     }
 
-                    let cost = chain_values.get(&chain);
+                    let cost = chain_values.get(chain);
 
                     // check if there's enough money left to buy
                     if money < cost {

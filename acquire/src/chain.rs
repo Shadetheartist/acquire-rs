@@ -58,9 +58,7 @@ impl<T: Copy> Index<&Chain> for ChainTable<T> {
 impl<T: Copy> ChainTable<T> {
 
     pub fn new(initial_value: T) -> Self {
-        Self {
-            0: [initial_value; NUM_CHAINS as usize]
-        }
+        Self([initial_value; NUM_CHAINS as usize])
     }
 
     pub fn set(&mut self, chain: &Chain, value: T) {
@@ -74,17 +72,17 @@ impl<T: Copy> ChainTable<T> {
 
 impl<T: Copy + Default> Default for ChainTable<T> {
     fn default() -> Self {
-        Self { 0: [T::default(); NUM_CHAINS as usize] }
+        Self([T::default(); NUM_CHAINS as usize])
     }
 }
 
 #[cfg(test)]
 mod test {
-    use rand::SeedableRng;
-    use rand::seq::SliceRandom;
-    use crate::{Acquire, Options, Phase, PlayerId, tile};
-    use crate::chain::Chain;
-    use crate::grid::Slot;
+    
+    
+    
+    
+    
 
     #[test]
     fn test_chain_table() {

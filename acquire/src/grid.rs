@@ -104,7 +104,7 @@ impl Grid {
                 // sort non-largest chains into a list in descending chain size order - ties in defunct chains don't matter as far as I know
                 // nor do I comprehend any advantage to sorting them in this way, it's just in the rules.
                 let mut other_chains: Vec<Chain> = neighbouring_chains.into_iter().filter(|chain| *chain != largest_chain).collect();
-                other_chains.sort_by(|a, b| self.chain_sizes.get(b).cmp(&self.chain_sizes.get(a)));
+                other_chains.sort_by_key(|chain|self.chain_sizes.get(chain));
 
                 let merger_list = other_chains
                     .iter()
@@ -263,7 +263,7 @@ impl Grid {
         self.chain_sizes.0
             .iter()
             .enumerate()
-            .filter(|(chain_idx, size)| **size > 0)
+            .filter(|(_, size)| **size > 0)
             .map(|(chain_idx, _)| Chain::from_index(chain_idx))
             .collect()
     }
@@ -272,7 +272,7 @@ impl Grid {
         self.chain_sizes.0
             .iter()
             .enumerate()
-            .filter(|(chain_idx, size)| **size == 0)
+            .filter(|(_, size)| **size == 0)
             .map(|(chain_idx, _)| Chain::from_index(chain_idx))
             .collect()
     }
