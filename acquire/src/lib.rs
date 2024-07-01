@@ -13,7 +13,7 @@ use rand::seq::SliceRandom;
 use chain::{Chain, CHAIN_ARRAY};
 use player::Player;
 use crate::chain::ChainTable;
-use crate::grid::{Grid, PlaceTileResult};
+use crate::grid::{Grid, Legality, PlaceTileResult, Slot};
 use crate::stock::Stocks;
 
 
@@ -97,6 +97,7 @@ impl Acquire {
             Phase::AwaitingChainCreationSelection => {
                 self.chain_selection_actions()
             }
+
             Phase::Merge { merging_player_id, phase: merge_phase, mergers_remaining } => {
                 self.merge_actions(merging_player_id, merge_phase, mergers_remaining)
             }
@@ -114,13 +115,28 @@ impl Acquire {
     fn tile_placement_actions(&self) -> Vec<Action> {
         let player = self.get_player_by_id(self.current_player_id);
         player.tiles.iter().filter_map(|tile| {
-            if !self.grid.is_illegal_tile(*tile).0 {
-                Some(Action::PlaceTile(self.current_player_id, *tile))
-            } else {
-                None
+            match self.grid.get(tile.0) {
+                Slot::Empty(legality) => {
+                    match legality {
+                        Legality::Legal => Some(Action::PlaceTile(self.current_player_id, *tile)),
+                        Legality::TemporarilyIllegal |
+                        Legality::PermanentIllegal => None,
+                    }
+                }
+
+                _ => {
+                    // theoretically the player should not have a tile that has already been placed,
+                    // except i do that all the time during testing
+                    #[cfg(not(test))]
+                    panic!("player shouldn't have a tile that's already been placed");
+
+                    #[cfg(test)]
+                    None
+                }
             }
         }).collect()
     }
+
 
     #[inline(never)]
     fn chain_selection_actions(&self) -> Vec<Action> {
@@ -441,7 +457,16 @@ impl Acquire {
     fn player_has_any_valid_tiles(&mut self, player_id: PlayerId) -> bool {
         let player = self.get_player_by_id(player_id);
         player.tiles.iter().any(|tile| {
-            !self.grid.is_illegal_tile(*tile).0
+            match self.grid.get(tile.0) {
+                Slot::Empty(legality) => {
+                    match legality {
+                        Legality::Legal => true,
+                        Legality::TemporarilyIllegal |
+                        Legality::PermanentIllegal => false,
+                    }
+                }
+                _ => panic!("player shouldn't have any tiles that are already placed"),
+            }
         })
     }
 
@@ -471,8 +496,25 @@ impl Acquire {
             player.tiles = player.tiles
                 .iter()
                 .filter(|tile| {
-                    let (illegal, allow_trade_in) = grid.is_illegal_tile(**tile);
-                    !illegal && !allow_trade_in
+                    match grid.get(tile.0) {
+                        Slot::Empty(legality) => {
+                            match legality {
+                                Legality::Legal |
+                                Legality::TemporarilyIllegal => true,
+                                Legality::PermanentIllegal => false,
+                            }
+                        }
+                        _ => {
+                            // theoretically the player should not have a tile that has already been placed,
+                            // except i do that all the time during testing
+                            #[cfg(not(test))]
+                            panic!("player shouldn't have a tile that's already been placed");
+
+                            #[cfg(test)]
+                            true
+                        }
+                    }
+
                 })
                 .map(|tile| *tile)
                 .collect();
@@ -836,70 +878,20 @@ mod test {
     use crate::chain::Chain;
     use crate::grid::Slot;
 
-    #[test]
-    fn test_game() {
+    fn game_test_instance() -> Acquire {
         let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let mut game = Acquire::new(rng, &Options::default());
-
-        game = game.apply_action(game.actions().remove(0));
-        game = game.apply_action(game.actions().remove(0));
-        game = game.apply_action(game.actions().remove(0));
-        game = game.apply_action(game.actions().remove(0));
+        Acquire::new(rng, &Options::default())
     }
 
     #[test]
     fn test_game_up_to_merge() {
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let game = Acquire::new(rng, &Options::default());
+        let game = game_test_instance();
 
         let game = game.apply_action(game.actions().remove(0));
         assert_eq!(game.grid.get(tile!("I11")), Slot::NoChain);
 
         let game = game.apply_action(game.actions().remove(0));
         assert_eq!(game.grid.get(tile!("H11")), Slot::NoChain);
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(4));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(2));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(1));
-
-        let game = game.apply_action(game.actions().remove(2));
-
-        let game = game.apply_action(game.actions().remove(1));
-
-        let game = game.apply_action(game.actions().remove(5));
-
-        let game = game.apply_action(game.actions().remove(game.actions().len() - 1));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(game.actions().len() - 1));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(game.actions().len() - 1));
-
-        let game = game.apply_action(game.actions().remove(4));
-
-        let game = game.apply_action(game.actions().remove(1));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(0));
-
-        let game = game.apply_action(game.actions().remove(0));
-        println!("{:?}: {:?}", game.phase, game.actions());
 
         println!("{}", game);
     }
@@ -1026,9 +1018,7 @@ mod test {
 
         game = game.apply_action(game.actions().remove(0));
 
-        game = game.apply_action(game.actions().remove(0));
-
-        println!("{}", game);
+        game.apply_action(game.actions().remove(0));
     }
 
     #[test]
@@ -1112,8 +1102,6 @@ mod test {
 
         // Player 3 has no stake in fesitval
 
-        println!("{:?} {:?}", game.phase, game.actions());
-        println!("{}", game);
 
         match game.phase {
             Phase::Merge { merging_player_id, .. } => {
@@ -1123,8 +1111,6 @@ mod test {
         }
 
         game = game.apply_action(game.actions().remove(2));
-
-        println!("{}", game);
     }
 
     #[test]
@@ -1171,17 +1157,16 @@ mod test {
                 }
 
                 let actions = game.actions();
+                if actions.len() == 0 {
+                    println!("{}", game);
+                    let actions = game.actions();
+                }
                 let action = actions.choose(&mut rng).expect("an action");
 
                 game = game.apply_action(action.clone());
-
-                println!("{}", game);
             }
 
             let winners = game.calculate_winners();
-
-            println!("game winner(s): {:?} with ${}", winners, game.get_player_by_id(winners[0]).money);
-            println!("{}", game);
         }
     }
 }

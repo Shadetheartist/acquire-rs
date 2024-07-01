@@ -24,7 +24,6 @@ fn main() {
         game.calculate_winners();
 
         //println!("{}", game);
-
     }
 
 }
