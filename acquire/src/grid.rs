@@ -116,7 +116,7 @@ impl Grid {
                 // sort non-largest chains into a list in descending chain size order - ties in defunct chains don't matter as far as I know
                 // nor do I comprehend any advantage to sorting them in this way, it's just in the rules.
                 let mut other_chains: Vec<Chain> = neighbouring_chains.into_iter().filter(|chain| *chain != largest_chain).collect();
-                other_chains.sort_by_key(|chain|self.chain_sizes.get(chain));
+                other_chains.sort_by_key(|chain| self.chain_sizes.get(chain));
 
                 let merger_list = other_chains
                     .iter()
@@ -172,7 +172,7 @@ impl Grid {
         }
     }
 
-    fn update_chain_of_neighbours(&mut self, pt: Point, chain: Chain){
+    fn update_chain_of_neighbours(&mut self, pt: Point, chain: Chain) {
         for neighbouring_pt in self.neighbouring_points(pt) {
             match self.get(neighbouring_pt) {
                 Slot::Limbo |
@@ -206,7 +206,7 @@ impl Grid {
         };
     }
 
-    fn update_legality_of_neighbours(&mut self, pt: Point){
+    fn update_legality_of_neighbours(&mut self, pt: Point) {
         for neighbouring_pt in self.neighbouring_points(pt) {
             self.update_legality_of_slot(neighbouring_pt);
         }
@@ -287,9 +287,11 @@ impl Grid {
     }
 
     pub fn fill_chain(&mut self, pt: Point, chain: Chain) {
+        let prev_temporary_illegal_possible = self.temporary_illegal_possible();
+
         let mut stack: VecDeque<Point> = Default::default();
         let mut visited: HashSet<Point> = Default::default();
-        let mut empty_surrounding_pts: Vec<Point> = Default::default();
+        let mut empty_surrounding_pts: HashSet<Point> = Default::default();
 
         stack.push_back(pt);
 
@@ -300,7 +302,7 @@ impl Grid {
                 Slot::Empty(legality) => {
                     match legality {
                         Legality::Legal |
-                        Legality::TemporarilyIllegal => { empty_surrounding_pts.push(pt); }
+                        Legality::TemporarilyIllegal => { empty_surrounding_pts.insert(pt); }
                         Legality::PermanentIllegal => {}
                     };
 
@@ -313,6 +315,8 @@ impl Grid {
                 Slot::Chain(existing_chain) => {
                     if existing_chain != chain {
                         self.set_slot(pt, Slot::Chain(chain));
+                    } else {
+                        continue;
                     }
                 }
             }
@@ -326,15 +330,48 @@ impl Grid {
         }
 
         if self.permanently_illegal_possible() {
+            stack.clear();
+            stack.push_back(pt);
+            visited.clear();
+
+            while let Some(pt) = stack.pop_front() {
+                visited.insert(pt);
+
+                match self.get(pt) {
+                    Slot::Empty(legality) => {
+                        match legality {
+                            Legality::Legal |
+                            Legality::TemporarilyIllegal => { empty_surrounding_pts.insert(pt); }
+                            Legality::PermanentIllegal => {}
+                        };
+
+                        continue;
+                    }
+                    Slot::Limbo |
+                    Slot::NoChain => {}
+                    Slot::Chain(existing_chain) => {
+                        if existing_chain != chain {
+                            continue;
+                        }
+                    }
+                }
+
+                // add valid neighbours to the stack
+                for valid_neighbour_pt in self.neighbouring_points(pt).iter().filter(|pt| {
+                    !visited.contains(pt)
+                }) {
+                    stack.push_back(*valid_neighbour_pt);
+                }
+            }
+
             for pt in empty_surrounding_pts {
                 self.update_legality_of_slot(pt);
             }
         }
 
-        if self.temporary_illegal_possible () {
+        if !prev_temporary_illegal_possible && self.temporary_illegal_possible() {
             self.update_legality_of_all_nochains();
         }
-
     }
 
     pub fn existing_chains(&self) -> Vec<Chain> {
@@ -377,13 +414,12 @@ impl Grid {
     }
 
     fn _is_illegal_tile(&self, tile: Tile) -> (bool, bool) {
-
         let permanently_illegal_possible = self.permanently_illegal_possible();
         let temporary_illegal_possible = self.temporary_illegal_possible();
 
         // can shortcut knowing that no tiles are illegal if there is less than two safe chains and there are chains available to create
         if !permanently_illegal_possible && !temporary_illegal_possible {
-            return (false, false)
+            return (false, false);
         }
 
         let neighbours = self.neighbours(tile.0);
@@ -393,7 +429,7 @@ impl Grid {
         match num_neighbouring_chains {
             2.. => {
                 if !permanently_illegal_possible {
-                    return (false, false)
+                    return (false, false);
                 }
 
                 if neighbouring_chains.iter().filter(|chain| self.chain_size(**chain) >= SAFE_CHAIN_SIZE).count() > 1 {
@@ -403,7 +439,7 @@ impl Grid {
 
             0 => {
                 if !temporary_illegal_possible {
-                    return (false, false)
+                    return (false, false);
                 }
 
                 let num_neighbouring_nochains = self.num_nochains_chains_in_slots(&neighbours);
@@ -421,7 +457,6 @@ impl Grid {
 
         (false, false)
     }
-
 }
 
 
@@ -497,7 +532,7 @@ impl From<Tile> for Point {
 pub enum Legality {
     Legal,
     TemporarilyIllegal,
-    PermanentIllegal
+    PermanentIllegal,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -513,7 +548,7 @@ mod test {
     use crate::tile;
     use crate::chain::Chain;
     use crate::grid::{Grid, Legality, PlaceTileResult, Slot};
-    
+
 
     #[test]
     fn test_place_tile_empty_grid() {
@@ -590,7 +625,46 @@ mod test {
         assert_eq!(grid.get(tile!("E3")), Slot::Empty(Legality::Legal));
 
         println!("{}", grid);
+    }
 
+    #[test]
+    fn test_post_new_merge_illegal_tiles() {
+        let mut grid = Grid::default();
+
+        grid.place(tile!("A1"));
+        grid.place(tile!("A2"));
+        grid.place(tile!("A3"));
+        grid.place(tile!("A4"));
+        grid.place(tile!("A5"));
+        grid.place(tile!("A6"));
+        grid.fill_chain(tile!("A6"), Chain::American);
+
+        grid.place(tile!("C1"));
+        grid.place(tile!("C2"));
+        grid.place(tile!("C3"));
+        grid.place(tile!("C4"));
+        grid.place(tile!("C5"));
+        grid.place(tile!("C6"));
+        grid.fill_chain(tile!("C6"), Chain::Tower);
+
+        grid.place(tile!("E1"));
+        grid.place(tile!("E2"));
+        grid.place(tile!("E3"));
+        grid.place(tile!("E4"));
+        grid.place(tile!("E5"));
+        grid.place(tile!("E6"));
+        grid.place(tile!("E7"));
+        grid.place(tile!("E8"));
+        grid.place(tile!("E9"));
+        grid.place(tile!("E10"));
+        grid.place(tile!("E11"));
+        grid.fill_chain(tile!("E11"), Chain::Luxor);
+
+        grid.place(tile!("B1"));
+        grid.fill_chain(tile!("B1"), Chain::Tower);
+
+        assert_eq!(grid.get(tile!("D2")), Slot::Empty(Legality::PermanentIllegal));
+        assert_eq!(grid.get(tile!("D6")), Slot::Empty(Legality::PermanentIllegal));
     }
 
     #[test]
