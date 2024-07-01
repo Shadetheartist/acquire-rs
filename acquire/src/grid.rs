@@ -183,26 +183,22 @@ impl Grid {
     }
 
     fn update_legality_of_slot(&mut self, pt: Point) {
-        match self.get(pt) {
-            // update the legality of neighbouring empty slots
-            Slot::Empty(legality) => {
-                match legality {
-                    Legality::Legal |
-                    Legality::TemporarilyIllegal => {
-                        let (illegal, permanent) = self._is_illegal_tile(Tile(pt));
-                        if illegal {
-                            if permanent {
-                                self.set_slot(pt, Slot::Empty(Legality::PermanentIllegal))
-                            } else {
-                                self.set_slot(pt, Slot::Empty(Legality::TemporarilyIllegal))
-                            }
+        if let Slot::Empty(legality) = self.get(pt) {
+            match legality {
+                Legality::Legal |
+                Legality::TemporarilyIllegal => {
+                    let (illegal, permanent) = self._is_illegal_tile(Tile(pt));
+                    if illegal {
+                        if permanent {
+                            self.set_slot(pt, Slot::Empty(Legality::PermanentIllegal))
+                        } else {
+                            self.set_slot(pt, Slot::Empty(Legality::TemporarilyIllegal))
                         }
                     }
-                    // this won't ever change once set to permanently illegal
-                    Legality::PermanentIllegal => {}
                 }
+                // this won't ever change once set to permanently illegal
+                Legality::PermanentIllegal => {}
             }
-            _ => {}
         };
     }
 
@@ -280,7 +276,7 @@ impl Grid {
     }
 
     fn update_legality_of_all_nochains(&mut self) {
-        let nochain_pts: Vec<Point> = self.data.iter().filter(|(_, slot)| matches!(**slot, Slot::NoChain | Slot::Limbo)).map(|(pt, slot)| *pt).collect();
+        let nochain_pts: Vec<Point> = self.data.iter().filter(|(_, slot)| matches!(**slot, Slot::NoChain | Slot::Limbo)).map(|(pt, _)| *pt).collect();
         for pt in nochain_pts {
             self.update_legality_of_neighbours(pt);
         }
@@ -397,7 +393,6 @@ impl Grid {
             .iter()
             .enumerate()
             .filter(|(_, size)| **size == 0)
-            .map(|(chain_idx, _)| Chain::from_index(chain_idx))
             .count()
     }
 

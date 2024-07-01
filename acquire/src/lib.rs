@@ -516,7 +516,7 @@ impl Acquire {
                     }
 
                 })
-                .map(|tile| *tile)
+                .copied()
                 .collect();
 
             let required_tiles: usize = 6 - player.tiles.len();
