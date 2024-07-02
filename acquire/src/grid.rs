@@ -194,6 +194,8 @@ impl Grid {
                         } else {
                             self.set_slot(pt, Slot::Empty(Legality::TemporarilyIllegal))
                         }
+                    } else {
+                        self.set_slot(pt, Slot::Empty(Legality::Legal))
                     }
                 }
                 // this won't ever change once set to permanently illegal
@@ -365,7 +367,7 @@ impl Grid {
             }
         }
 
-        if !prev_temporary_illegal_possible && self.temporary_illegal_possible() {
+        if prev_temporary_illegal_possible != self.temporary_illegal_possible() {
             self.update_legality_of_all_nochains();
         }
     }
@@ -736,12 +738,36 @@ mod test {
         grid.place(tile!("C5"));
         grid.fill_chain(tile!("C5"), Chain::Continental);
 
-        println!("{}", grid);
-
         assert_eq!(grid.get(tile!("E3")), Slot::Empty(Legality::Legal));
         assert_eq!(grid.get(tile!("D4")), Slot::Empty(Legality::Legal));
         assert_eq!(grid.get(tile!("E5")), Slot::Empty(Legality::TemporarilyIllegal));
         assert_eq!(grid.get(tile!("F4")), Slot::Empty(Legality::TemporarilyIllegal));
+
+        grid.place(tile!("B1"));
+        grid.fill_chain(tile!("B1"), Chain::Tower);
+
+        assert_eq!(grid.get(tile!("E3")), Slot::Empty(Legality::Legal));
+        assert_eq!(grid.get(tile!("D4")), Slot::Empty(Legality::Legal));
+        assert_eq!(grid.get(tile!("E5")), Slot::Empty(Legality::Legal));
+        assert_eq!(grid.get(tile!("F4")), Slot::Empty(Legality::Legal));
+
+
+        grid.place(tile!("E5"));
+        grid.fill_chain(tile!("E5"), Chain::Luxor);
+
+        grid.place(tile!("G5"));
+
+        assert_eq!(grid.get(tile!("F5")), Slot::Empty(Legality::Legal));
+        assert_eq!(grid.get(tile!("G6")), Slot::Empty(Legality::TemporarilyIllegal));
+        assert_eq!(grid.get(tile!("H5")), Slot::Empty(Legality::TemporarilyIllegal));
+        assert_eq!(grid.get(tile!("G4")), Slot::Empty(Legality::TemporarilyIllegal));
+
+        grid.place(tile!("G3"));
+
+        assert_eq!(grid.get(tile!("G4")), Slot::Empty(Legality::Legal));
+
+        println!("{}", grid);
+
     }
 
     #[test]

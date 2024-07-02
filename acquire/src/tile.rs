@@ -14,7 +14,7 @@ pub enum TileParseError {
     InvalidNumber,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Tile(pub Point);
 
 impl Tile {

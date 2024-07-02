@@ -4,6 +4,7 @@ mod money;
 mod stock;
 mod player;
 mod chain;
+mod ai;
 
 use tile::Tile;
 use std::fmt::{Debug, Display, Formatter};
@@ -394,7 +395,9 @@ impl Acquire {
             Action::Terminate(_, terminate) => {
                 game.terminated = terminate;
 
-                if !game.terminated {
+                if game.terminated {
+                    game.provide_final_bonuses();
+                } else {
                     game.move_to_next_player_who_can_play_a_tile();
                 }
             }
@@ -413,11 +416,7 @@ impl Acquire {
         self.terminated
     }
 
-    pub fn calculate_winners(&mut self) -> Vec<PlayerId> {
-        for chain in &CHAIN_ARRAY {
-            self.provide_bonuses(*chain);
-        }
-
+    pub fn winners(&self) -> Vec<PlayerId> {
         let most_money = self.players.iter().map(|player| player.money).max().unwrap();
 
         self.players.iter().filter_map(|player| {
@@ -427,6 +426,12 @@ impl Acquire {
                 None
             }
         }).collect()
+    }
+
+    fn provide_final_bonuses(&mut self) {
+        for chain in &CHAIN_ARRAY {
+            self.provide_bonuses(*chain);
+        }
     }
 
     fn move_to_next_player_who_can_play_a_tile(&mut self) {
@@ -445,6 +450,7 @@ impl Acquire {
 
             if count == self.players.len() * 2 {
                 self.terminated = true;
+                self.provide_final_bonuses();
                 break;
             }
         }
@@ -686,7 +692,7 @@ impl Acquire {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Action {
     PlaceTile(PlayerId, Tile),
     PurchaseStock(PlayerId, [BuyOption; 3]),
@@ -773,7 +779,7 @@ impl Display for Action {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug,  Eq, PartialEq, Hash)]
 pub struct MergeDecision {
     merging_chains: MergingChains,
     sell: u8,
@@ -802,7 +808,7 @@ enum MergePhase {
     AwaitingMergeDecision,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 struct MergingChains {
     merging_chain: Chain,
     defunct_chain: Chain,
@@ -1166,7 +1172,7 @@ mod test {
                 game = game.apply_action(action.clone());
             }
 
-            let winners = game.calculate_winners();
+            let winners = game.winners();
         }
     }
 }
