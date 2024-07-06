@@ -51,8 +51,8 @@ impl Mcts<PlayerId, Action> for Acquire {
         self.actions()
     }
 
-    fn apply_action<R: Rng + Sized>(&self, action: Action, _: &mut R) -> Result<Self, Self::Error> where Self: Sized {
-        Ok(self.apply_action(action))
+    fn apply_action<R: Rng + Sized>(&self, action: &Action, _: &mut R) -> Result<Self, Self::Error> where Self: Sized {
+        Ok(self.apply_action(action.clone()))
     }
 
     fn outcome(&self) -> Option<Outcome<PlayerId>> {
@@ -63,7 +63,7 @@ impl Mcts<PlayerId, Action> for Acquire {
             if winners.len() == 1 {
                 return Some(Outcome::Winner(winners[0]));
             } else if winners.len() > 1 {
-                return Some(Outcome::Winners(winners));
+                return Some(Outcome::Draw(winners));
             } else {
                 panic!("no winners");
             }
@@ -83,3 +83,6 @@ impl Mcts<PlayerId, Action> for Acquire {
         self.players.iter().map(|p| p.id).collect()
     }
 }
+
+impl ai::Player for PlayerId {}
+impl ai::Action for Action {}

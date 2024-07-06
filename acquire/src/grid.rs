@@ -176,7 +176,10 @@ impl Grid {
         for neighbouring_pt in self.neighbouring_points(pt) {
             match self.get(neighbouring_pt) {
                 Slot::Limbo |
-                Slot::NoChain => self.set_slot(neighbouring_pt, Slot::Chain(chain)),
+                Slot::NoChain => {
+                    self.set_slot(neighbouring_pt, Slot::Chain(chain));
+                    self.update_legality_of_neighbours(neighbouring_pt);
+                },
                 _ => {}
             };
         }
@@ -662,6 +665,13 @@ mod test {
 
         assert_eq!(grid.get(tile!("D2")), Slot::Empty(Legality::PermanentIllegal));
         assert_eq!(grid.get(tile!("D6")), Slot::Empty(Legality::PermanentIllegal));
+
+        // test growth
+        grid.place(tile!("C8"));
+        grid.place(tile!("C7"));
+
+        assert_eq!(grid.get(tile!("D7")), Slot::Empty(Legality::PermanentIllegal));
+        assert_eq!(grid.get(tile!("D8")), Slot::Empty(Legality::PermanentIllegal));
     }
 
     #[test]

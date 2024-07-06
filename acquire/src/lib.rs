@@ -821,20 +821,27 @@ impl Display for Acquire {
         f.write_fmt(format_args!("  Acquire: Turn {} | Tiles Left {}", self.turn, self.tiles.len()));
         writeln!(f);
 
-        write!(f, "      ");
+        write!(f, "        ");
         for chain in &CHAIN_ARRAY {
             f.write_fmt(format_args!("{}", chain.initial()));
             write!(f, "   ");
         }
         writeln!(f);
 
-        write!(f, "      ");
+        write!(f, " Size:  ");
         for chain in &CHAIN_ARRAY {
             f.write_fmt(format_args!("{: <4}", self.grid.chain_size(*chain)));
+        }
+        writeln!(f);
+
+        write!(f, "Stock:  ");
+        for chain in &CHAIN_ARRAY {
+            f.write_fmt(format_args!("{: <4}", self.stocks.amount(*chain)));
         }
 
         write!(f, "Money    ");
         write!(f, "Tiles");
+
         writeln!(f);
 
         for player in &self.players {
@@ -843,7 +850,7 @@ impl Display for Acquire {
             } else {
                 write!(f, " ");
             }
-            f.write_fmt(format_args!(" P{}: ", player.id.0));
+            f.write_fmt(format_args!("  P{}:  ", player.id.0));
 
             for chain in &CHAIN_ARRAY {
                 f.write_fmt(format_args!("{: <4}", player.stocks.amount(*chain)));
@@ -1116,7 +1123,7 @@ mod test {
             _ => panic!("game not in correct state")
         }
 
-        game = game.apply_action(game.actions().remove(2));
+        game.apply_action(game.actions().remove(2));
     }
 
     #[test]
@@ -1165,14 +1172,13 @@ mod test {
                 let actions = game.actions();
                 if actions.len() == 0 {
                     println!("{}", game);
+                    #[allow(unused)]
                     let actions = game.actions();
                 }
                 let action = actions.choose(&mut rng).expect("an action");
 
                 game = game.apply_action(action.clone());
             }
-
-            let winners = game.winners();
         }
     }
 }
