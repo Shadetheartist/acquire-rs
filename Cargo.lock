@@ -43,6 +43,7 @@ name = "ai"
 version = "0.1.0"
 dependencies = [
  "petgraph",
+ "petgraph-graphml",
  "rand",
  "rand_pcg",
 ]
@@ -141,7 +142,6 @@ version = "0.1.0"
 dependencies = [
  "acquire",
  "ai",
- "petgraph-graphml",
  "rand",
  "rand_chacha",
 ]
