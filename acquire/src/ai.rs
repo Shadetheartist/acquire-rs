@@ -1,10 +1,11 @@
 use ahash::HashMap;
-use ai::{Determinable, Mcts, Outcome};
+use bg_ai::{State, Outcome};
+use bg_ai::ismcts::Determinable;
 use rand::prelude::SliceRandom;
 use rand::Rng;
 use crate::{Acquire, Action, Phase, PlayerId};
 
-impl Determinable<PlayerId, Action, Acquire> for Acquire {
+impl Determinable<Acquire, Action, PlayerId> for Acquire {
     fn determine<R: Rng>(&self, rng: &mut R, perspective_player: PlayerId) -> Acquire {
         let mut game = self.clone();
 
@@ -44,14 +45,14 @@ impl Determinable<PlayerId, Action, Acquire> for Acquire {
     }
 }
 
-impl Mcts<PlayerId, Action> for Acquire {
+impl State<Action, PlayerId> for Acquire {
     type Error = ();
 
     fn actions(&self) -> Vec<Action> {
         self.actions()
     }
 
-    fn apply_action<R: Rng + Sized>(&self, action: &Action, _: &mut R) -> Result<Self, Self::Error> where Self: Sized {
+    fn apply_action<R: Rng + Sized>(&self, _: &mut R, action: &Action) -> Result<Self, Self::Error> where Self: Sized {
         Ok(self.apply_action(action.clone()))
     }
 
@@ -67,7 +68,6 @@ impl Mcts<PlayerId, Action> for Acquire {
             } else {
                 panic!("no winners");
             }
-
         }
     }
 
@@ -76,13 +76,9 @@ impl Mcts<PlayerId, Action> for Acquire {
             Phase::Merge { merging_player_id, .. } => merging_player_id,
             _ => self.current_player_id,
         }
-
-    }
-
-    fn players(&self) -> Vec<PlayerId> {
-        self.players.iter().map(|p| p.id).collect()
     }
 }
 
-impl ai::Player for PlayerId {}
-impl ai::Action for Action {}
+impl bg_ai::Player for PlayerId {}
+
+impl bg_ai::Action for Action {}

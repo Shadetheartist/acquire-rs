@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 acquire = { path = "../acquire" }
-ai = { path = "../../ai-rs/ai" }
+bg_ai = { path = "../../bg_ai" }
 
 rand_chacha = "0.3.1"
 rand = "0.8.5"

@@ -1,37 +1,37 @@
-use std::fs;
+use std::collections::HashMap;
+use bg_ai::ismcts::MtAgent;
 use rand_chacha::rand_core::SeedableRng;
-use acquire::{Acquire, Options};
-use ai;
-use ai::DecisionTree;
+use acquire::{Acquire, Options, PlayerId};
+
 
 fn main() {
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+    let initial_game_state = Acquire::new(&mut rng, &Options::default());
+    let agents: HashMap<PlayerId, MtAgent<PlayerId>> = initial_game_state
+        .players()
+        .iter()
+        .enumerate()
+        .map(|(idx, player)| (
+            player.id,
+            MtAgent {
+                player: player.id,
+                num_simulations: 100 + 250 * idx as u32,
+                num_determinations: 4 + 4 * idx as u32,
+            }
+        )).collect();
 
-    let rng = rand_chacha::ChaCha8Rng::seed_from_u64(1);
-    let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(1), &Options::default());
+    println!("{:?}", agents);
+
+    let mut game = bg_ai::ismcts::MultithreadedInformationSetGame::new(rng, initial_game_state, agents);
 
     loop {
-
         if game.is_terminated() {
             break;
         }
 
-        let action = ai::ismcts_mt(&game, &rng, 100, 1000);
-
-        game = game.apply_action(action.clone());
+        let action = game.step().unwrap();
 
         println!("{}", action);
-        println!("{}", game);
+        println!("{}", game.state);
     }
-}
-
-#[allow(dead_code)]
-fn write_tree_to_file(game: &Acquire){
-    let mut tree = DecisionTree::new(game.clone());
-
-    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1);
-
-    tree.search_n(&mut rng, 40000);
-
-    let mut file_writer = fs::File::create("output.graphml").unwrap();
-    tree.write_graphml(&mut file_writer).unwrap();
 }

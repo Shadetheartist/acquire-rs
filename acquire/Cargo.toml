@@ -12,7 +12,7 @@ rand = "0.8.5"
 ahash = "0.8.11"
 rand_chacha = "0.3.1"
 lazy_static = "1.5.0"
-ai = { path = "../../ai-rs/ai" }
+bg_ai = { path = "../../bg_ai" }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

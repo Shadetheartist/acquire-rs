@@ -55,7 +55,7 @@ impl Default for Options {
 
 
 impl Acquire {
-    pub fn new<R: Rng>(mut rng: R, options: &Options) -> Self {
+    pub fn new<R: Rng>(rng: &mut R, options: &Options) -> Self {
         let grid = Grid::new(options.grid_width, options.grid_height);
 
         let mut tiles = vec![];
@@ -65,7 +65,7 @@ impl Acquire {
             }
         }
 
-        tiles.shuffle(&mut rng);
+        tiles.shuffle(rng);
 
         let players = (0..options.num_players).map(|id| Player {
             id: PlayerId(id),
@@ -136,6 +136,10 @@ impl Acquire {
                 }
             }
         }).collect()
+    }
+
+    pub fn players(&self) -> &Vec<Player> {
+        &self.players
     }
 
 
