@@ -143,6 +143,10 @@ impl Acquire {
     }
 
 
+    pub fn grid(&self) -> &Grid {
+        &self.grid
+    }
+
     #[inline(never)]
     fn chain_selection_actions(&self) -> Vec<Action> {
         self.grid.available_chains().into_iter().map(|chain| {
@@ -813,7 +817,7 @@ enum MergePhase {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-struct MergingChains {
+pub struct MergingChains {
     merging_chain: Chain,
     defunct_chain: Chain,
     num_remaining_players_to_merge: Option<u8>,
@@ -896,8 +900,8 @@ mod test {
     use crate::grid::Slot;
 
     fn game_test_instance() -> Acquire {
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        Acquire::new(rng, &Options::default())
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        Acquire::new(&mut rng, &Options::default())
     }
 
     #[test]
@@ -916,8 +920,8 @@ mod test {
 
     #[test]
     fn test_purchase_combinations() {
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let mut game = Acquire::new(rng, &Options::default());
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(&mut rng, &Options::default());
 
         game.grid.place(tile!("A1"));
         game.grid.place(tile!("A2"));
@@ -972,8 +976,8 @@ mod test {
 
     #[test]
     fn test_player_ids_in_order() {
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let game = Acquire::new(rng, &Options::default());
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let game = Acquire::new(&mut rng, &Options::default());
 
         assert_eq!(game.player_ids_in_order(PlayerId(0)), vec![
             PlayerId(0),
@@ -999,8 +1003,8 @@ mod test {
 
     #[test]
     fn test_four_way_merge() {
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let mut game = Acquire::new(rng, &Options::default());
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(&mut rng, &Options::default());
 
         game.grid.place(tile!("D1"));
         game.grid.place(tile!("D2"));
@@ -1040,8 +1044,8 @@ mod test {
 
     #[test]
     fn test_four_way_merge_with_stakes() {
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let mut game = Acquire::new(rng, &Options::default());
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(&mut rng, &Options::default());
 
         game.grid.place(tile!("D1"));
         game.grid.place(tile!("D2"));
@@ -1132,7 +1136,8 @@ mod test {
 
     #[test]
     fn test_growth() {
-        let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(2), &Options::default());
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(&mut rng, &Options::default());
 
         game.grid.place(tile!("A4"));
         game.grid.place(tile!("B3"));
@@ -1152,7 +1157,7 @@ mod test {
     fn test_random_games() {
         for n in 0..100 {
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(n);
-            let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(n), &Options::default());
+            let mut game = Acquire::new(&mut rng, &Options::default());
 
             for _ in 0..200 {
                 if game.is_terminated() {
@@ -1166,7 +1171,7 @@ mod test {
             }
 
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-            let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(2), &Options::default());
+            let mut game = Acquire::new(&mut rand_chacha::ChaCha8Rng::seed_from_u64(2), &Options::default());
 
             loop {
                 if game.is_terminated() {

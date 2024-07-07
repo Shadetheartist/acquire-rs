@@ -61,6 +61,7 @@ name = "bg_ai"
 version = "0.1.0"
 dependencies = [
  "petgraph",
+ "petgraph-graphml",
  "rand",
  "thiserror",
 ]
@@ -370,6 +371,16 @@ checksum = "b4c5cc86750666a3ed20bdaf5ca2a0344f9c67674cae0515bec2da16fbaa47db"
 dependencies = [
  "fixedbitset",
  "indexmap",
+]
+
+[[package]]
+name = "petgraph-graphml"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "246368e83d42c556dd08e321cfc2234c979e6ccf874f60bc4255eb1e09aa1f18"
+dependencies = [
+ "petgraph",
+ "xml-rs",
 ]
 
 [[package]]
@@ -763,6 +774,12 @@ name = "windows_x86_64_msvc"
 version = "0.52.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bec47e5bfd1bff0eeaf6d8b485cc1074891a197ab4225d504cb7a1ab88b02bf0"
+
+[[package]]
+name = "xml-rs"
+version = "0.8.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791978798f0597cfc70478424c2b4fdc2b7a8024aaff78497ef00f24ef674193"
 
 [[package]]
 name = "zerocopy"

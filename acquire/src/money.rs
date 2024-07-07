@@ -120,8 +120,8 @@ mod test {
 
     #[test]
     fn test_bonus_calc() {
-        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
-        let mut game = Acquire::new(rng, &Options::default());
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(2);
+        let mut game = Acquire::new(&mut rng, &Options::default());
 
         game.grid.place(tile!("A1"));
         game.grid.place(tile!("A2"));

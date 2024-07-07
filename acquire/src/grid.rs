@@ -14,6 +14,7 @@ pub struct Grid {
     pub width: u8,
     pub height: u8,
     pub data: HashMap<Point, Slot>,
+    pub indicators: HashSet<Point>,
     chain_sizes: ChainTable<u16>,
     pub previously_placed_tile_pt: Option<Point>,
 }
@@ -39,6 +40,7 @@ impl Grid {
             width,
             height,
             data: Default::default(),
+            indicators: Default::default(),
             chain_sizes: Default::default(),
             previously_placed_tile_pt: None,
         }
@@ -69,6 +71,10 @@ impl Grid {
         } else {
             Slot::Empty(Legality::Legal)
         }
+    }
+
+    pub fn indicate(&mut self, _: Tile) {
+
     }
 
 
@@ -237,10 +243,8 @@ impl Grid {
     pub fn chains_in_slots(&self, slots: &[Slot]) -> Vec<Chain> {
         slots.iter().filter_map(|slot| {
             match slot {
-                Slot::Empty(_) |
-                Slot::Limbo |
-                Slot::NoChain => None,
                 Slot::Chain(chain) => Some(*chain),
+                _ => None
             }
         }).unique().collect()
     }
@@ -249,10 +253,8 @@ impl Grid {
         slots.iter().fold(0u8, |acc, slot| {
             acc + {
                 match slot {
-                    Slot::Empty(_) |
-                    Slot::Limbo |
-                    Slot::Chain(_) => 0,
                     Slot::NoChain => 1,
+                    _ => 0
                 }
             }
         })
@@ -463,30 +465,56 @@ impl Grid {
 #[allow(unused_must_use)]
 impl Display for Grid {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for y in 0..self.height as i8 {
-            for x in 0..self.width as i8 {
+        for y in -1..self.height as i8 {
+            for x in -1..self.width as i8 {
+
+                if y == -1 && x == -1 {
+                    write!(f, "   ").expect("written character");
+                    continue;
+                }
+
+                if y == -1 {
+                    write!(f, "{:<3}", x + 1).expect("written character");
+                    continue;
+                }
+
+                if x == -1 {
+                    let letter_idx = y as u32 + 65;
+                    let letter = char::from_u32(letter_idx).unwrap();
+
+
+                    write!(f, "{}  ", letter).expect("written character");
+                    continue;
+                }
+
                 let pt = Point { x, y };
-                match self.get(pt) {
-                    Slot::Empty(legality) => {
-                        match legality {
-                            Legality::Legal => write!(f, "□", ),
-                            Legality::TemporarilyIllegal => write!(f, "▫", ),
-                            Legality::PermanentIllegal => write!(f, "▪", ),
-                        };
-                    }
-                    Slot::NoChain => {
-                        write!(f, "■", );
-                    }
-                    Slot::Limbo => {
-                        write!(f, "○", );
-                    }
-                    Slot::Chain(chain) => {
-                        write!(f, "{}", chain.initial());
+
+                if self.indicators.contains(&pt) {
+                    write!(f, "◎").expect("written character");
+                } else {
+                    match self.get(pt) {
+                        Slot::Empty(legality) => {
+                            match legality {
+                                Legality::Legal => write!(f, "□", ).expect("written character"),
+                                Legality::TemporarilyIllegal => write!(f, "▫", ).expect("written character"),
+                                Legality::PermanentIllegal => write!(f, "▪", ).expect("written character"),
+                            };
+                        }
+                        Slot::NoChain => {
+                            write!(f, "■", ).expect("written character");
+                        }
+                        Slot::Limbo => {
+                            write!(f, "○", ).expect("written character");
+                        }
+                        Slot::Chain(chain) => {
+                            write!(f, "{}", chain.initial()).expect("written character");
+                        }
                     }
                 }
-                write!(f, "  ", );
+
+                write!(f, "  ", ).expect("written character");
             }
-            writeln!(f);
+            writeln!(f).expect("written character");
         }
 
         Ok(())
@@ -499,6 +527,7 @@ impl Default for Grid {
             width: 12,
             height: 9,
             data: Default::default(),
+            indicators: Default::default(),
             chain_sizes: Default::default(),
             previously_placed_tile_pt: None,
         }

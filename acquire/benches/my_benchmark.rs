@@ -5,7 +5,7 @@ use acquire::{Acquire, Options};
 
 fn run_game() {
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(thread_rng().next_u64());
-    let mut game = Acquire::new(rand_chacha::ChaCha8Rng::seed_from_u64(thread_rng().next_u64()), &Options::default());
+    let mut game = Acquire::new(&mut rng, &Options::default());
 
     loop {
         if game.is_terminated() {
