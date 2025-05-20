@@ -3,11 +3,12 @@ use std::fmt::{ Debug, Display, Formatter};
 use std::io;
 use std::io::Write;
 use std::str::FromStr;
-use bg_ai::ismcts::{IsMctsMtAgent, MtAgent};
+use bg_ai::ismcts::{IsMctsMtAgent, MtAgent, MultithreadedInformationSetGame};
 use rand_chacha::rand_core::SeedableRng;
 use acquire::{Acquire, Action, BuyOption, Chain, Options, Phase, PlayerId, Tile};
 use itertools::Itertools;
 use rand::{thread_rng, RngCore};
+use rand_chacha::ChaCha8Rng;
 
 #[derive(Debug)]
 struct HumanAgent {
@@ -211,9 +212,15 @@ impl CpuStrength {
     }
 }
 
+enum Mode {
+    Human,
+    CpuExpo
+}
+
 struct SetupData {
     seed: u64,
     cpus: Vec<CpuStrength>,
+    mode: Mode,
 }
 
 fn init() -> SetupData {
@@ -238,7 +245,7 @@ o88o     o8888o `Y8bod8P' `V8bod888   `V88V"V8P' o888o d888b    `Y8bod8P'
     io::stdin().read_line(&mut line).unwrap();
     let custom = line.trim().to_lowercase();
     if custom != "c" {
-        return SetupData { seed: thread_rng().next_u64(), cpus: vec![CpuStrength::RegularShmegular, CpuStrength::RegularShmegular, CpuStrength::Decent] };
+        return SetupData { mode: Mode::Human, seed: thread_rng().next_u64(), cpus: vec![CpuStrength::RegularShmegular, CpuStrength::RegularShmegular, CpuStrength::Decent] };
     }
     line.clear();
 
@@ -258,16 +265,32 @@ o88o     o8888o `Y8bod8P' `V8bod888   `V88V"V8P' o888o d888b    `Y8bod8P'
         panic!("Invalid number of players");
     }
 
+
+    let mut mode = Mode::CpuExpo;
+    print!("Will you be playing? ([y] or n): ");
+    io::stdout().flush().unwrap();
+    io::stdin().read_line(&mut line).unwrap();
+    let mode_str = line.trim();
+    if mode_str == "y" {
+        mode = Mode::Human;
+    }
+    line.clear();
+
     let mut cpus: Vec<CpuStrength> = Vec::with_capacity(num_players - 1);
 
-    for i in 1..num_players {
-        println!("Choose player {} strength: ", i + 1);
+    let start = match mode {
+        Mode::Human => 1,
+        Mode::CpuExpo => 0
+    };
+
+    for i in start..num_players {
+        println!("Choose cpu {} strength: ", i);
 
         for (idx, s) in CpuStrength::all().iter().enumerate() {
             println!("\t{idx}: {:?}", s);
         }
 
-        print!("Select one (0-{}): ", CpuStrength::all().len() - 1);
+        print!("Select one (0-{}): ", CpuStrength::all().len() - start);
         io::stdout().flush().unwrap();
         io::stdin().read_line(&mut line).unwrap();
         let strength_idx = line.trim().parse::<usize>().unwrap();
@@ -278,6 +301,7 @@ o88o     o8888o `Y8bod8P' `V8bod888   `V88V"V8P' o888o d888b    `Y8bod8P'
     }
 
     SetupData {
+        mode,
         seed,
         cpus,
     }
@@ -287,10 +311,26 @@ fn main() {
     let setup_data = init();
 
     let mut options = Options::default();
-    options.num_players = (setup_data.cpus.len() + 1) as u8;
 
-    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(setup_data.seed);
+    options.num_players = match setup_data.mode {
+        Mode::Human => (setup_data.cpus.len() + 1) as u8,
+        Mode::CpuExpo => (setup_data.cpus.len()) as u8
+    };
+
+
+    let mut rng = ChaCha8Rng::seed_from_u64(setup_data.seed);
     let initial_game_state = Acquire::new(&mut rng, &options);
+
+    let game = match setup_data.mode {
+        Mode::Human => human_play(setup_data, rng, initial_game_state),
+        Mode::CpuExpo => cpu_expo(setup_data, rng, initial_game_state)
+    };
+    println!("{}", game.state);
+    println!("{:?}", game.outcome());
+    println!("Game Over!");
+}
+
+fn human_play(setup_data: SetupData, rng: ChaCha8Rng, initial_game_state: Acquire) -> MultithreadedInformationSetGame<ChaCha8Rng, Acquire, Action, PlayerId> {
     let agents: HashMap<PlayerId, Box<dyn IsMctsMtAgent<rand_chacha::ChaCha8Rng, Acquire, Action, PlayerId>>> = initial_game_state
         .players()
         .iter()
@@ -314,7 +354,46 @@ fn main() {
                 }
             };
 
-            (player.id, agent)
+            (
+                player.id, agent
+            )
+        }).collect();
+
+    let mut game = bg_ai::ismcts::MultithreadedInformationSetGame::new(rng, initial_game_state, agents);
+
+    loop {
+        if game.is_terminated() {
+            break;
+        }
+
+        let action = game.step().unwrap();
+        println!("{}", action);
+    }
+
+    game
+}
+
+
+fn cpu_expo(setup_data: SetupData, rng: ChaCha8Rng, initial_game_state: Acquire) -> MultithreadedInformationSetGame<ChaCha8Rng, Acquire, Action, PlayerId> {
+    let agents: HashMap<PlayerId, Box<dyn IsMctsMtAgent<rand_chacha::ChaCha8Rng, Acquire, Action, PlayerId>>> = initial_game_state
+        .players()
+        .iter()
+        .enumerate()
+        .map(|(idx, player)| {
+            let agent = {
+
+                (
+                    || Box::new(MtAgent {
+                        player: player.id,
+                        num_simulations: setup_data.cpus[idx].strength().0,
+                        num_determinations: setup_data.cpus[idx].strength().1,
+                    }) as _
+                )()
+            };
+
+            (
+                player.id, agent
+            )
         }).collect();
 
     let mut game = bg_ai::ismcts::MultithreadedInformationSetGame::new(rng, initial_game_state, agents);
@@ -323,6 +402,9 @@ fn main() {
             break;
         }
         let action = game.step().unwrap();
+
+        println!("{}", game.state);
         println!("{}", action);
     }
+    game
 }

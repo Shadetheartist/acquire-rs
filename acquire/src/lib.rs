@@ -82,7 +82,7 @@ impl Acquire {
             tiles,
             stocks,
             grid,
-            current_player_id: PlayerId(0),
+            current_player_id: PlayerId(rng.gen_range(0..options.num_players)),
             turn: 1,
             step: 0,
             terminated: false,
