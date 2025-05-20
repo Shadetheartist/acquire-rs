@@ -32,12 +32,12 @@ pub struct Acquire {
 }
 
 pub struct Options {
-    num_players: u8,
-    num_tiles: u8,
-    grid_width: u8,
-    grid_height: u8,
-    num_stock: u8,
-    starting_money: u32,
+    pub num_players: u8,
+    pub num_tiles: u8,
+    pub grid_width: u8,
+    pub grid_height: u8,
+    pub num_stock: u8,
+    pub starting_money: u32,
 }
 
 impl Default for Options {
