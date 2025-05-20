@@ -452,6 +452,10 @@ impl Acquire {
         for chain in &CHAIN_ARRAY {
             self.provide_bonuses(*chain);
         }
+
+        for chain in &CHAIN_ARRAY {
+            self.sell_off(*chain);
+        }
     }
 
     fn move_to_next_player_who_can_play_a_tile(&mut self) {
@@ -502,6 +506,17 @@ impl Acquire {
             #[cfg(test)]
             println!("Player {} received a bonus of ${bonus}", player_id.0);
             self.get_player_by_id_mut(player_id).money += bonus;
+        }
+    }
+
+    fn sell_off(&mut self, chain: Chain) {
+        let value = money::chain_value(chain, self.grid.chain_size(chain));
+
+        for player in &mut self.players {
+            let total_value = player.stocks.amount(chain) as u32 * value;
+            player.stocks.withdraw(chain, player.stocks.amount(chain)).expect("enough stock to sell");
+            player.money += total_value;
+
         }
     }
 
