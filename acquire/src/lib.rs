@@ -6,12 +6,12 @@ mod player;
 mod chain;
 mod ai;
 
-use tile::Tile;
+pub use tile::Tile;
 use std::fmt::{Debug, Display, Formatter};
 use itertools::Itertools;
 use rand::Rng;
 use rand::seq::SliceRandom;
-use chain::{Chain, CHAIN_ARRAY};
+pub use chain::{Chain, CHAIN_ARRAY};
 use player::Player;
 use crate::chain::ChainTable;
 use crate::grid::{Grid, Legality, PlaceTileResult, Slot};
@@ -143,8 +143,20 @@ impl Acquire {
     }
 
 
+    pub fn stocks(&self) -> &Stocks {
+        &self.stocks
+    }
+
+    pub fn phase(&self) -> Phase {
+        self.phase.clone()
+    }
+
     pub fn grid(&self) -> &Grid {
         &self.grid
+    }
+
+    pub fn grid_mut(&mut self) -> &mut Grid {
+        &mut self.grid
     }
 
     #[inline(never)]
@@ -796,7 +808,7 @@ pub struct MergeDecision {
 }
 
 #[derive(Debug, Clone)]
-enum Phase {
+pub enum Phase {
     AwaitingTilePlacement,
     AwaitingChainCreationSelection,
     AwaitingStockPurchase,
@@ -809,7 +821,7 @@ enum Phase {
 }
 
 #[derive(Clone, Debug)]
-enum MergePhase {
+pub enum MergePhase {
     AwaitingTiebreakSelection {
         tied_chains: Vec<Chain>
     },
@@ -839,6 +851,14 @@ impl Display for Acquire {
         write!(f, " Size:  ");
         for chain in &CHAIN_ARRAY {
             f.write_fmt(format_args!("{: <4}", self.grid.chain_size(*chain)));
+        }
+        writeln!(f);
+
+        write!(f, "Value:  ");
+        for chain in &CHAIN_ARRAY {
+            let size = u16::max(2, self.grid.chain_size(*chain));
+
+            f.write_fmt(format_args!("{: <4}", money::chain_value(*chain, size)));
         }
         writeln!(f);
 

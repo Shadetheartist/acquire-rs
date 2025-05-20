@@ -9,3 +9,4 @@ bg_ai = { path = "../../bg_ai" }
 
 rand_chacha = "0.3.1"
 rand = "0.8.5"
+itertools = "0.13.0"

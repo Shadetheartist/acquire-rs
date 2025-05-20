@@ -1,55 +1,169 @@
-use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter};
+use std::collections::{HashMap};
+use std::fmt::{ Debug, Display, Formatter};
 use std::io;
 use std::io::Write;
 use std::str::FromStr;
 use bg_ai::ismcts::{IsMctsMtAgent, MtAgent};
 use rand_chacha::rand_core::SeedableRng;
-use acquire::{Acquire, Action, Options, PlayerId};
+use acquire::{Acquire, Action, BuyOption, Chain, Options, Phase, PlayerId, Tile};
+use itertools::Itertools;
+use rand::{thread_rng, RngCore};
 
 #[derive(Debug)]
 struct HumanAgent {
     player_id: PlayerId,
 }
 
-impl IsMctsMtAgent<rand_chacha::ChaCha8Rng, Acquire, Action, PlayerId> for HumanAgent where
+impl IsMctsMtAgent<rand_chacha::ChaCha8Rng, Acquire, Action, PlayerId> for HumanAgent
+where
 {
     fn player(&self) -> PlayerId {
         self.player_id
     }
 
     fn decide(&self, _: &mut rand_chacha::ChaCha8Rng, state: &Acquire) -> Option<Action> {
+        let actions = state.actions();
+        let mut state = state.clone();
 
-        let mut actions = state.actions();
-
-        let mut grid = state.grid().clone();
-
-        print!("Your Tiles: ");
-        for tile in &state.get_player_by_id(self.player_id).tiles {
-            grid.indicators.insert((*tile).into());
-            print!("{}, ", tile);
+        for tile in state.get_player_by_id(self.player_id).clone().tiles {
+            state.grid_mut().indicators.insert(tile.into());
         }
-        println!();
-        println!("{}", grid);
-        println!();
 
 
-        println!("Choose an action");
+
 
         loop {
-            for (idx, action) in actions.iter().enumerate() {
-                println!("\t{} - {}", idx + 1, action);
-            }
+            match state.phase() {
+                Phase::AwaitingTilePlacement => {
+                    println!("{}", state);
+                    if let Some(value) = Self::tile_placement_input(&actions) {
+                        return value;
+                    }
+                }
+                Phase::AwaitingStockPurchase => {
+                    if let Some(value) = Self::purchase_stock_input(&state, &actions) {
+                        return value;
+                    }
+                }
+                Phase::AwaitingChainCreationSelection |
+                Phase::AwaitingGameTerminationDecision |
+                Phase::Merge { .. } => {
+                    println!("Choose Action to Take");
+                    for (idx, action) in actions.iter().enumerate() {
+                        let mut action_str = action.to_string();
+                        action_str = action_str.replace("Player 0", "Human Player");
+                        println!("  {} - {}", idx + 1, action_str);
+                    }
 
-            let mut line = String::new();
-            std::io::stdin().read_line(&mut line).unwrap();
+                    let mut line = String::new();
+                    io::stdin().read_line(&mut line).unwrap();
 
-            if let Ok(decision) = usize::from_str(line.trim()) {
-                return Some(actions.remove(decision - 1))
-            } else {
-                println!("Invalid action.");
+                    if let Ok(decision) = usize::from_str(line.trim()) {
+                        return Some(actions.get(decision - 1).unwrap().clone());
+                    }
+                }
             }
         }
+    }
+}
+
+impl HumanAgent {
+    fn tile_placement_input(actions: &Vec<Action>) -> Option<Option<Action>> {
+
+        println!("Choose Tile to Place");
+        print!("{}: ", actions.iter().map(|a| {
+            if let Action::PlaceTile(_, tile) = a {
+                tile
+            } else {
+                panic!()
+            }
+        }).join(", "));
+
+        io::stdout().flush().unwrap();
+
+        let mut line = String::new();
+        io::stdin().read_line(&mut line).unwrap();
+        line = line.trim().to_uppercase();
+
+        if let Ok(tile) = Tile::try_from(line.as_str()) {
+            let action = actions.iter().find(|a| {
+                if let Action::PlaceTile(_, t) = a {
+                    *t == tile
+                } else {
+                    false
+                }
+            });
+
+            if let Some(action) = action {
+                return Some(Some(action.clone()));
+            }
+        }
+
+        println!("Invalid Tile.");
+        None
+    }
+
+    fn multiset<T: Eq + std::hash::Hash>(vec: &[T]) -> HashMap<&T, usize> {
+        let mut counts = HashMap::new();
+        for item in vec {
+            *counts.entry(item).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    fn purchase_stock_input(state: &Acquire, actions: &Vec<Action>) -> Option<Option<Action>> {
+        print!("Choose up to Three Stock to Buy of [{}] (initials): ", state.grid().existing_chains().into_iter().join(", "));
+        io::stdout().flush().unwrap();
+
+        let mut line = String::new();
+        io::stdin().read_line(&mut line).unwrap();
+        line = line.trim().to_uppercase();
+
+        let chains: Option<Vec<_>> = line
+            .chars()
+            .into_iter()
+            .filter(|c| *c != ' ')
+            .map(|c| Chain::from_initial(&c.to_string()))
+            .collect();
+
+        let Some(chains) = chains else {
+            println!("Invalid input.");
+            return None;
+        };
+
+        if chains.len() > 3 {
+            println!("Invalid Input, Too Many Choices.");
+            return None;
+        }
+
+        let mut buys: Vec<_> = chains.into_iter().map(|c| BuyOption::Chain(c)).collect();
+        for _ in 0..3-buys.len() {
+            buys.push(BuyOption::None);
+        }
+
+        let buys_set = Self::multiset(&buys);
+
+        let has_match = {
+            let mut m = false;
+            for a in actions {
+                if let Action::PurchaseStock(_, buys) = a {
+                    if buys_set == Self::multiset(buys) {
+                        m = true;
+                        break;
+                    }
+                }
+            }
+            m
+        };
+
+        if !has_match {
+            println!("Invalid Input, can you afford these?.");
+            return None;
+        }
+
+
+        let buys: [BuyOption; 3] = [buys.pop().unwrap(), buys.pop().unwrap(), buys.pop().unwrap()];
+        Some(Some(Action::PurchaseStock(PlayerId(0), buys)))
     }
 }
 
@@ -60,28 +174,28 @@ impl Display for HumanAgent {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum CpuStrength{
+enum CpuStrength {
     Garbage,
     Childlike,
     RegularShmegular,
     Decent,
     Hardge,
     Spooky,
-    Immortal
+    Immortal,
 }
 
 impl CpuStrength {
-   fn strength(&self) -> (u32, u32) {
-       match self {
-           CpuStrength::Garbage => (1, 1),
-           CpuStrength::Childlike => (4, 10),
-           CpuStrength::RegularShmegular => (8, 100),
-           CpuStrength::Decent => (8, 400),
-           CpuStrength::Hardge => (12, 1000),
-           CpuStrength::Spooky => (24, 4000),
-           CpuStrength::Immortal => (32, 10000),
-       }
-   }
+    fn strength(&self) -> (u32, u32) {
+        match self {
+            CpuStrength::Garbage => (1, 1),
+            CpuStrength::Childlike => (4, 10),
+            CpuStrength::RegularShmegular => (8, 100),
+            CpuStrength::Decent => (8, 400),
+            CpuStrength::Hardge => (12, 1000),
+            CpuStrength::Spooky => (24, 4000),
+            CpuStrength::Immortal => (32, 10000),
+        }
+    }
 
     fn all() -> Vec<Self> {
         use CpuStrength::*;
@@ -103,9 +217,30 @@ struct SetupData {
 }
 
 fn init() -> SetupData {
-    println!("Initial Setup");
+    println!(r#########"
+      .o.                                         o8o
+     .888.                                        `"'
+    .8"888.      .ooooo.   .ooooo oo oooo  oooo  oooo  oooo d8b  .ooooo.
+   .8' `888.    d88' `"Y8 d88' `888  `888  `888  `888  `888""8P d88' `88b
+  .88ooo8888.   888       888   888   888   888   888   888     888ooo888
+ .8'     `888.  888   .o8 888   888   888   888   888   888     888    .o
+o88o     o8888o `Y8bod8P' `V8bod888   `V88V"V8P' o888o d888b    `Y8bod8P'
+                                888.
+                                8P'              CLI by Derek H.
+                                "
+    "#########);
+    println!("Game Setup");
 
     let mut line = String::new();
+
+    print!("Default or Custom? ([D] or C): ");
+    io::stdout().flush().unwrap();
+    io::stdin().read_line(&mut line).unwrap();
+    let custom = line.trim().to_lowercase();
+    if custom != "c" {
+        return SetupData { seed: thread_rng().next_u64(), cpus: vec![CpuStrength::RegularShmegular, CpuStrength::RegularShmegular, CpuStrength::Decent] };
+    }
+    line.clear();
 
     print!("Seed (number): ");
     io::stdout().flush().unwrap();
@@ -123,7 +258,7 @@ fn init() -> SetupData {
         panic!("Invalid number of players");
     }
 
-    let mut cpus: Vec<CpuStrength> = Vec::with_capacity(num_players-1);
+    let mut cpus: Vec<CpuStrength> = Vec::with_capacity(num_players - 1);
 
     for i in 1..num_players {
         println!("Choose player {} strength: ", i + 1);
@@ -132,7 +267,7 @@ fn init() -> SetupData {
             println!("\t{idx}: {:?}", s);
         }
 
-        print!("Select one (0-{}): ", CpuStrength::all().len()-1);
+        print!("Select one (0-{}): ", CpuStrength::all().len() - 1);
         io::stdout().flush().unwrap();
         io::stdin().read_line(&mut line).unwrap();
         let strength_idx = line.trim().parse::<usize>().unwrap();
@@ -146,12 +281,9 @@ fn init() -> SetupData {
         seed,
         cpus,
     }
-
-
 }
 
 fn main() {
-
     let setup_data = init();
 
     let mut options = Options::default();
@@ -175,38 +307,22 @@ fn main() {
                     (
                         || Box::new(MtAgent {
                             player: player.id,
-                            num_simulations: setup_data.cpus[idx-1].strength().0,
-                            num_determinations: setup_data.cpus[idx-1].strength().1,
+                            num_simulations: setup_data.cpus[idx - 1].strength().0,
+                            num_determinations: setup_data.cpus[idx - 1].strength().1,
                         }) as _
                     )()
                 }
             };
 
-            (
-                player.id, agent
-            )
+            (player.id, agent)
         }).collect();
 
     let mut game = bg_ai::ismcts::MultithreadedInformationSetGame::new(rng, initial_game_state, agents);
-
     loop {
         if game.is_terminated() {
             break;
         }
-
         let action = game.step().unwrap();
-
         println!("{}", action);
-        match action {
-            Action::PlaceTile(_, _) => {
-                println!("{}", game.state);
-            }
-            Action::PurchaseStock(_, _) => {}
-            Action::SelectChainToCreate(_, _) => {}
-            Action::SelectChainForTiebreak(_, _) => {}
-            Action::DecideMerge { .. } => {}
-            Action::Terminate(_, _) => {}
-        }
-
     }
 }

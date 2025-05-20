@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::ops::Index;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -9,6 +10,12 @@ pub enum Chain {
     Festival,
     Continental,
     Imperial,
+}
+
+impl Display for Chain {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{:?}", self))
+    }
 }
 
 const NUM_CHAINS: u8 = 7;
@@ -32,6 +39,19 @@ impl Chain {
             Chain::Festival => 'F',
             Chain::Continental => 'C',
             Chain::Imperial => 'I',
+        }
+    }
+
+    pub fn from_initial(initial: &str) -> Option<Self> {
+        match initial {
+            "T" => Some(Chain::Tower),
+            "L" => Some(Chain::Luxor),
+            "A" => Some(Chain::American),
+            "W" => Some(Chain::Worldwide),
+            "F" => Some(Chain::Festival),
+            "C" => Some(Chain::Continental),
+            "I" => Some(Chain::Imperial),
+            _ => None,
         }
     }
 
