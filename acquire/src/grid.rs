@@ -489,28 +489,32 @@ impl Display for Grid {
 
                 let pt = Point { x, y };
 
-                if self.indicators.contains(&pt) {
-                    write!(f, "◎").expect("written character");
-                } else {
-                    match self.get(pt) {
-                        Slot::Empty(legality) => {
-                            match legality {
-                                Legality::Legal => write!(f, "□", ).expect("written character"),
-                                Legality::TemporarilyIllegal => write!(f, "▫", ).expect("written character"),
-                                Legality::PermanentIllegal => write!(f, "▪", ).expect("written character"),
-                            };
-                        }
-                        Slot::NoChain => {
-                            write!(f, "■", ).expect("written character");
-                        }
-                        Slot::Limbo => {
-                            write!(f, "○", ).expect("written character");
-                        }
-                        Slot::Chain(chain) => {
-                            write!(f, "{}", chain.initial()).expect("written character");
-                        }
+
+                match self.get(pt) {
+                    Slot::Empty(legality) => {
+                        match legality {
+                            Legality::Legal => {
+                                if self.indicators.contains(&pt) {
+                                    write!(f, "◎").expect("written character");
+                                } else {
+                                    write!(f, "□", ).expect("written character");
+                                }
+                            },
+                            Legality::TemporarilyIllegal => write!(f, "▫", ).expect("written character"),
+                            Legality::PermanentIllegal => write!(f, "▪", ).expect("written character"),
+                        };
+                    }
+                    Slot::NoChain => {
+                        write!(f, "■", ).expect("written character");
+                    }
+                    Slot::Limbo => {
+                        write!(f, "○", ).expect("written character");
+                    }
+                    Slot::Chain(chain) => {
+                        write!(f, "{}", chain.initial()).expect("written character");
                     }
                 }
+
 
                 write!(f, "  ", ).expect("written character");
             }

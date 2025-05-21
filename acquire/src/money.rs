@@ -20,6 +20,9 @@ lazy_static! {
 }
 
 pub fn chain_value(chain: Chain, size: u16) -> u32 {
+    if size == 0 {
+        return 0;
+    }
     let tier = CHAIN_TIER_MAP[&chain];
     chain_size_value(size) + tier as u32 * 100
 }

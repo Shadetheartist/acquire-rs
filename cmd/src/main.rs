@@ -31,12 +31,12 @@ where
         }
 
 
+        println!("\n{}", state);
 
 
         loop {
             match state.phase() {
                 Phase::AwaitingTilePlacement => {
-                    println!("{}", state);
                     if let Some(value) = Self::tile_placement_input(&actions) {
                         return value;
                     }
@@ -46,7 +46,11 @@ where
                         return value;
                     }
                 }
-                Phase::AwaitingChainCreationSelection |
+                Phase::AwaitingChainCreationSelection => {
+                    if let Some(value) = Self::select_chain_to_create(&state, &actions) {
+                        return value;
+                    }
+                }
                 Phase::AwaitingGameTerminationDecision |
                 Phase::Merge { .. } => {
                     println!("Choose Action to Take");
@@ -113,7 +117,7 @@ impl HumanAgent {
     }
 
     fn purchase_stock_input(state: &Acquire, actions: &Vec<Action>) -> Option<Option<Action>> {
-        print!("Choose up to Three Stock to Buy of [{}] (initials): ", state.grid().existing_chains().into_iter().join(", "));
+        print!("Choose up to Three Stock to Buy of [{}] (initials): ", state.grid().available_chains().into_iter().join(", "));
         io::stdout().flush().unwrap();
 
         let mut line = String::new();
@@ -158,13 +162,56 @@ impl HumanAgent {
         };
 
         if !has_match {
-            println!("Invalid Input, can you afford these?.");
+            println!("Invalid Input, Can you afford these? Are there enough in stock?");
             return None;
         }
 
 
         let buys: [BuyOption; 3] = [buys.pop().unwrap(), buys.pop().unwrap(), buys.pop().unwrap()];
         Some(Some(Action::PurchaseStock(PlayerId(0), buys)))
+    }
+
+    fn select_chain_to_create(state: &Acquire, actions: &Vec<Action>) -> Option<Option<Action>> {
+        print!("Choose Chain to Create of [{}] (initial): ", state.grid().available_chains().into_iter().join(", "));
+        io::stdout().flush().unwrap();
+
+        let mut line = String::new();
+        io::stdin().read_line(&mut line).unwrap();
+        line = line.trim().to_uppercase();
+
+        let chains: Option<Vec<_>> = line
+            .chars()
+            .into_iter()
+            .filter(|c| *c != ' ')
+            .map(|c| Chain::from_initial(&c.to_string()))
+            .collect();
+
+        let Some(chains) = chains else {
+            println!("Invalid input.");
+            return None;
+        };
+
+        if chains.len() != 1 {
+            println!("Invalid Input, choose one chain by entering it's initial.");
+            return None;
+        }
+
+        let selected_chain = chains[0];
+
+        let action = actions.iter().find(|a| {
+            if let Action::SelectChainToCreate(_, chain) = a {
+                chain == &selected_chain
+            } else {
+                false
+            }
+        });
+
+        if action.is_none() {
+            println!("Invalid Input, matching action not found");
+            return None;
+        }
+
+        Some(Some(action.unwrap().clone()))
     }
 }
 
@@ -183,6 +230,7 @@ enum CpuStrength {
     Hardge,
     Spooky,
     Immortal,
+    Bezos
 }
 
 impl CpuStrength {
@@ -192,9 +240,10 @@ impl CpuStrength {
             CpuStrength::Childlike => (4, 10),
             CpuStrength::RegularShmegular => (8, 100),
             CpuStrength::Decent => (8, 400),
-            CpuStrength::Hardge => (12, 1000),
-            CpuStrength::Spooky => (24, 4000),
-            CpuStrength::Immortal => (32, 10000),
+            CpuStrength::Hardge => (10, 700),
+            CpuStrength::Spooky => (12, 2000),
+            CpuStrength::Immortal => (24, 4000),
+            CpuStrength::Bezos => (48, 8000),
         }
     }
 
@@ -207,7 +256,8 @@ impl CpuStrength {
             Decent,
             Hardge,
             Spooky,
-            Immortal
+            Immortal,
+            Bezos,
         ]
     }
 }
@@ -236,6 +286,10 @@ o88o     o8888o `Y8bod8P' `V8bod888   `V88V"V8P' o888o d888b    `Y8bod8P'
                                 8P'              CLI by Derek H.
                                 "
     "#########);
+
+    println!("\nHelp:\nWhen the game asks you for initials when buying stock, you can type up to three. For example:\n\tcci = buy two continental and one imperial.\n\tttt = buy three tower\n\n");
+
+
     println!("Game Setup");
 
     let mut line = String::new();
@@ -245,7 +299,7 @@ o88o     o8888o `Y8bod8P' `V8bod888   `V88V"V8P' o888o d888b    `Y8bod8P'
     io::stdin().read_line(&mut line).unwrap();
     let custom = line.trim().to_lowercase();
     if custom != "c" {
-        return SetupData { mode: Mode::Human, seed: thread_rng().next_u64(), cpus: vec![CpuStrength::RegularShmegular, CpuStrength::RegularShmegular, CpuStrength::Decent] };
+        return SetupData { mode: Mode::Human, seed: thread_rng().next_u64(), cpus: vec![CpuStrength::Hardge, CpuStrength::Decent, CpuStrength::RegularShmegular] };
     }
     line.clear();
 
@@ -317,6 +371,7 @@ fn main() {
         Mode::CpuExpo => (setup_data.cpus.len()) as u8
     };
 
+    println!("Starting Game");
 
     let mut rng = ChaCha8Rng::seed_from_u64(setup_data.seed);
     let initial_game_state = Acquire::new(&mut rng, &options);

@@ -871,7 +871,7 @@ impl Display for Acquire {
 
         write!(f, "Value:  ");
         for chain in &CHAIN_ARRAY {
-            let size = u16::max(2, self.grid.chain_size(*chain));
+            let size = self.grid.chain_size(*chain);
 
             f.write_fmt(format_args!("{: <4}", money::chain_value(*chain, size)));
         }
