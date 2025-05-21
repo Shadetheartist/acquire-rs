@@ -777,7 +777,7 @@ impl Display for Action {
             }
 
             Action::DecideMerge { merging_player_id, decision } => {
-                return if decision.sell == 0 && decision.trade_in == 0 {
+                if decision.sell == 0 && decision.trade_in == 0 {
                     f.write_fmt(format_args!("Player {} decides to keep their stock in {:?}.", merging_player_id.0, decision.merging_chains.defunct_chain))
                 } else if decision.sell != 0 && decision.trade_in == 0 {
                     f.write_fmt(format_args!("Player {} sells {} {:?}.", merging_player_id.0, decision.sell, decision.merging_chains.defunct_chain))
@@ -801,7 +801,7 @@ impl Display for Action {
                         decision.trade_in / 2,
                         decision.merging_chains.merging_chain
                     ))
-                };
+                }
             }
             Action::Terminate(player_id, terminate) => {
                 if *terminate {
@@ -1214,7 +1214,7 @@ mod test {
                 }
 
                 let actions = game.actions();
-                if actions.len() == 0 {
+                if actions.is_empty() {
                     println!("{}", game);
                     #[allow(unused)]
                     let actions = game.actions();

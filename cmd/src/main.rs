@@ -126,7 +126,6 @@ impl HumanAgent {
 
         let chains: Option<Vec<_>> = line
             .chars()
-            .into_iter()
             .filter(|c| *c != ' ')
             .map(|c| Chain::from_initial(&c.to_string()))
             .collect();
@@ -141,7 +140,7 @@ impl HumanAgent {
             return None;
         }
 
-        let mut buys: Vec<_> = chains.into_iter().map(|c| BuyOption::Chain(c)).collect();
+        let mut buys: Vec<_> = chains.into_iter().map(BuyOption::Chain).collect();
         for _ in 0..3-buys.len() {
             buys.push(BuyOption::None);
         }
@@ -181,7 +180,6 @@ impl HumanAgent {
 
         let chains: Option<Vec<_>> = line
             .chars()
-            .into_iter()
             .filter(|c| *c != ' ')
             .map(|c| Chain::from_initial(&c.to_string()))
             .collect();
@@ -315,7 +313,7 @@ o88o     o8888o `Y8bod8P' `V8bod888   `V88V"V8P' o888o d888b    `Y8bod8P'
     let num_players = line.trim().parse::<usize>().unwrap();
     line.clear();
 
-    if num_players < 2 || num_players > 6 {
+    if !(2..=6).contains(&num_players) {
         panic!("Invalid number of players");
     }
 
@@ -368,7 +366,7 @@ fn main() {
 
     options.num_players = match setup_data.mode {
         Mode::Human => (setup_data.cpus.len() + 1) as u8,
-        Mode::CpuExpo => (setup_data.cpus.len()) as u8
+        Mode::CpuExpo => setup_data.cpus.len() as u8
     };
 
     println!("Starting Game");
@@ -393,19 +391,15 @@ fn human_play(setup_data: SetupData, rng: ChaCha8Rng, initial_game_state: Acquir
         .map(|(idx, player)| {
             let agent = {
                 if idx == 0 {
-                    (
-                        || Box::new(HumanAgent {
+                    Box::new(HumanAgent {
                             player_id: PlayerId(0)
                         }) as _
-                    )()
                 } else {
-                    (
-                        || Box::new(MtAgent {
+                    Box::new(MtAgent {
                             player: player.id,
                             num_simulations: setup_data.cpus[idx - 1].strength().0,
                             num_determinations: setup_data.cpus[idx - 1].strength().1,
                         }) as _
-                    )()
                 }
             };
 
@@ -437,13 +431,11 @@ fn cpu_expo(setup_data: SetupData, rng: ChaCha8Rng, initial_game_state: Acquire)
         .map(|(idx, player)| {
             let agent = {
 
-                (
-                    || Box::new(MtAgent {
+                Box::new(MtAgent {
                         player: player.id,
                         num_simulations: setup_data.cpus[idx].strength().0,
                         num_determinations: setup_data.cpus[idx].strength().1,
                     }) as _
-                )()
             };
 
             (

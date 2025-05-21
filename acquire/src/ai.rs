@@ -58,11 +58,11 @@ impl State<Action, PlayerId> for Acquire {
 
     fn outcome(&self) -> Option<Outcome<PlayerId>> {
         if !self.is_terminated() {
-            return None;
+            None
         } else {
             let winners = self.winners();
             if winners.len() == 1 {
-                return Some(Outcome::Winner(winners[0]));
+                Some(Outcome::Winner(winners[0]))
             } else if winners.len() > 1 {
                 return Some(Outcome::Draw(winners));
             } else {
